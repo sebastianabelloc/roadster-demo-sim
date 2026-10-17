@@ -31,9 +31,21 @@ def quaternion_normalize(q):
     q_unit = q / norm
     return q_unit
 
+def quaternion_derivative(q, omega):
+    """Calculates the derivative of a quaternion given angular velocity vector omega.
+       Accepts any quaternion and angular velocity vector on body frame in rad/s."""
+    # convert input to numpy arrays
+    q = np.asarray(q, dtype=float)
+    omega = np.asarray(omega, dtype=float)
+    # create quaternion from angular velocity
+    omega_quat = np.concatenate(([0], omega))
+    # calculate derivative using Hamilton product
+    q_dot = 0.5 * quaternion_multiplication(q, omega_quat)
+    return q_dot
 
 if __name__ == "__main__":
-    print("Example 1: Identity", quaternion_multiplication([1, 0, 0, 0], [0.5, 0.5, 0.5, 0.5]))
-    print("Example 2: Rotation i x j", quaternion_multiplication([0, 1, 0, 0], [0, 0, 1, 0]))
-    print("Example 3: Rotation j x i", quaternion_multiplication([0, 0, 1, 0], [0, 1, 0, 0]))
-    print("Example 4: Normalize [2, 0, 0, 0]", quaternion_normalize([2, 0, 0, 0]))
+    print("Example 1: Identity = ", quaternion_multiplication([1, 0, 0, 0], [0.5, 0.5, 0.5, 0.5]))
+    print("Example 2: Rotation i x j = ", quaternion_multiplication([0, 1, 0, 0], [0, 0, 1, 0]))
+    print("Example 3: Rotation j x i = ", quaternion_multiplication([0, 0, 1, 0], [0, 1, 0, 0]))
+    print("Example 4: Normalize [2, 0, 0, 0] = ", quaternion_normalize([2, 0, 0, 0]))
+    print("Example 5: Derivative [1, 0, 0, 0] with omega [0, 0, 1] = ", quaternion_derivative([1, 0, 0, 0], [0, 0, 1]))
