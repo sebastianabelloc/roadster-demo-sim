@@ -18,9 +18,22 @@ def quaternion_multiplication(p, q):
     v = w1 * v2 + w2 * v1 + np.cross(v1, v2)
     return np.concatenate(([w], v))
 
-if __name__ == "__main__":
+def quaternion_normalize(q):
+    """Normalizes a quaternion and checks for division by 0 to raise error. Accepts any quaternion."""
+    # convert input to numpy array
+    q = np.asarray(q, dtype=float)
+    # calculates norm of quaternion
+    norm = np.sqrt(np.multiply(q, q).sum())
+    # gives error if norm is 0 or very small
+    if norm < 1e-12:
+        raise ValueError("Cannot normalize a zero quaternion")
+    # normalizes quaternion
+    q_unit = q / norm
+    return q_unit
 
+
+if __name__ == "__main__":
     print("Example 1: Identity", quaternion_multiplication([1, 0, 0, 0], [0.5, 0.5, 0.5, 0.5]))
     print("Example 2: Rotation i x j", quaternion_multiplication([0, 1, 0, 0], [0, 0, 1, 0]))
     print("Example 3: Rotation j x i", quaternion_multiplication([0, 0, 1, 0], [0, 1, 0, 0]))
-
+    print("Example 4: Normalize [2, 0, 0, 0]", quaternion_normalize([2, 0, 0, 0]))
