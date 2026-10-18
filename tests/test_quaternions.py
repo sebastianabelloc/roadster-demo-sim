@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from roadster.quaternions import quaternion_multiplication, quaternion_normalize, quaternion_derivative
+from roadster.quaternions import quaternion_conjugate, quaternion_multiplication, quaternion_normalize, quaternion_derivative
 
 def test_quaternion_identity_multiplication():
     q1 = np.array([1, 0, 0, 0])  # Identity quaternion
@@ -34,3 +34,13 @@ def test_quaternion_derivative():
     omega = np.array([0, 0, 1])  # Angular velocity around z-axis
     result = quaternion_derivative(q, omega)
     np.testing.assert_allclose(result, [0, 0, 0, 0.5])  # Expected derivative
+
+def test_quaternion_conjugate():
+    result = quaternion_conjugate([1, 2, 3, 4])
+    np.testing.assert_allclose(result, [1, -2, -3, -4])
+
+def test_conjugate_undoes_rotation():
+    # q ⊗ q* must give the identity (no rotation)
+    q = [0.70710678, -0.70710678, 0, 0]
+    result = quaternion_multiplication(q, quaternion_conjugate(q))
+    np.testing.assert_allclose(result, [1, 0, 0, 0], atol=1e-8)

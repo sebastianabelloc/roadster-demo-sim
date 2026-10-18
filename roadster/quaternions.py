@@ -43,6 +43,14 @@ def quaternion_derivative(q, omega):
     q_dot = 0.5 * quaternion_multiplication(q, omega_quat)
     return q_dot
 
+def quaternion_conjugate(q):
+    """Returns the conjugate of a quaternion (w, x, y, z): same scalar part, vector part negated.
+       For unit quaternions it is the inverse rotation."""
+    # convert input to numpy array
+    q = np.asarray(q, dtype=float)
+    # keep scalar part and negate vector part
+    return np.concatenate(([q[0]], -q[1:]))
+
 if __name__ == "__main__":
     print("Example 1: Identity = ", quaternion_multiplication([1, 0, 0, 0], [0.5, 0.5, 0.5, 0.5]))
     print("Example 2: Rotation i x j = ", quaternion_multiplication([0, 1, 0, 0], [0, 0, 1, 0]))
