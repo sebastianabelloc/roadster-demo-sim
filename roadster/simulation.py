@@ -34,6 +34,6 @@ if __name__ == "__main__":
     I = np.diag([m / 12 * (B**2 + H**2),
                  m / 12 * (L**2 + H**2),
                  m / 12 * (L**2 + B**2)])
-    state0 = [0, 0, 0, 12, 0, 10, 1, 0, 0, 0, 0.3, 0.8, 0.1]
+    state0 = [0, 0, 0,   8, 0, 12.5,   1, 0, 0, 0,   0, 0, 0]
     sol = simulate_roadster(state0, I, [0, 0, 0], t_max=10, max_step=0.01, rtol=1e-6, atol=1e-9)
     print("Tesla Roadster landed at: ", sol.t[-1], "seconds with final state: ", sol.y[:, -1])
