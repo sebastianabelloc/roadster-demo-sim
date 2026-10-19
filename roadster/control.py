@@ -46,6 +46,13 @@ def select_thrusters(torque_cmd, deadband):
             on[4 * axis + 3] = True
     return on
 
+def lift_command(vz, vz_ref, a_ff, kv, lift_max=1.9, g=9.81):
+    """Calculates the lift command based on current vertical velocity vz (m/s), reference vertical velocity vz_ref (m/s)."""
+    # calculate lift command (fraction of the weight)
+    lift_cmd = 1 + (a_ff + kv * (vz_ref - vz)) / g
+    # thrusters cannot pull down or exceed their maximum
+    lift_cmd = np.clip(lift_cmd, 0.0, lift_max)
+    return lift_cmd
 
 if __name__ == "__main__":
     np.set_printoptions(precision=3, suppress=True)
@@ -63,3 +70,10 @@ if __name__ == "__main__":
     # thruster selection
     on = select_thrusters([500, -800, 50], deadband=100)
     print("Thrusters on:", np.where(on)[0], "expected [0 1 6 7]")
+
+    # lift command (fraction of the weight held by the lift thrusters)
+    g = 9.81
+    print("On the braking curve:   ", lift_command(vz=-6.9, vz_ref=-6.9, a_ff=0.6 * g, kv=8.0), "expected 1.6")
+    print("Hovering still:         ", lift_command(vz=0.0, vz_ref=0.0, a_ff=0.0, kv=8.0), "expected 1.0")
+    print("Falling too fast:       ", lift_command(vz=-3.0, vz_ref=-1.0, a_ff=0.0, kv=8.0), "expected 1.9 (saturated)")
+    print("Going up while hovering:", lift_command(vz=0.5, vz_ref=0.0, a_ff=0.0, kv=8.0), "expected ~0.59")
