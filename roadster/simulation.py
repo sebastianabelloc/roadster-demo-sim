@@ -80,3 +80,11 @@ if __name__ == "__main__":
     state0 = [0, 0, 0,   8, 0, 12.5,   1, 0, 0, 0,   0, 0, 0]
     sol = simulate_roadster(state0, I, [0, 0, 0], t_max=10, max_step=0.01, rtol=1e-6, atol=1e-9)
     print("Tesla Roadster landed at: ", sol.t[-1], "seconds with final state: ", sol.y[:, -1])
+    # closed loop demo
+    state0_ctrl = [0, 0, 0,   7.0, 0, 11.15,   1, 0, 0, 0,   0.1, 0.25, 0.05]
+    times, states, thrusters = simulate_controlled(state0_ctrl, I, thrust=5000, kp=5e4, kd=3e3,
+                                                   deadband=400, lift=0.2)
+    print("Flight time:      ", times[-1], "s   expected ~2.84")
+    print("Final x:          ", states[0, -1], "m   expected ~19.9")
+    print("Final quaternion: ", states[6:10, -1], "  expected ~(-1, 0, 0, 0)")
+    print("Final omega:      ", states[10:13, -1], "rad/s   expected ~0")
