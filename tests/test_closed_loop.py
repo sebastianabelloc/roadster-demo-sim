@@ -40,7 +40,17 @@ def test_demo_completes_the_roll_and_lands_level(demo_run):
     q_final = states[6:10, -1]
     tilt_deg = np.degrees(2 * np.arccos(min(1.0, abs(q_final[0]))))
     assert q_final[0] < 0                      # full turn: quaternion ends near -1
-    assert tilt_deg < 2.0
+    assert tilt_deg < 3.0                      # the hold deadband accepts a couple of degrees to avoid chattering
+
+
+def test_attitude_hold_does_not_chatter(demo_run):
+    times, _, thrusters, _ = demo_run
+    after_roll = times >= 2.48
+    pulses = 0
+    for i in (0, 2, 4, 6, 8, 10):              # one thruster of each pair
+        on = thrusters[i, after_roll].astype(bool)
+        pulses += int(np.sum(on[1:] & ~on[:-1]) + on[0])
+    assert pulses <= 10                        # was 61 with the roll deadband; a few short touches only
 
 
 def test_demo_soft_landing_within_thrust_limit(demo_run):
