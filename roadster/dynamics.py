@@ -13,9 +13,10 @@ def angular_acceleration(omega, inertia, torque):
     w_dot = np.linalg.inv(inertia) @ (np.subtract(torque, np.cross(omega, inertia @ omega)))
     return w_dot
 
-def state_derivative(t, state, inertia, torque):
+def state_derivative(t, state, inertia, torque, lift=0.0):
     """Calculates the derivative of the state vector given time t, state vector, inertia matrix, and torque vector.
-       The state vector is [rx, ry, rz, vx, vy, vz, qw, qx, qy, qz, wx, wy, wz] where q is the quaternion and w is the angular velocity."""
+       The state vector is [rx, ry, rz, vx, vy, vz, qw, qx, qy, qz, wx, wy, wz] where q is the quaternion and w is the angular velocity.
+       Lift term is introduced to represent the fraction of the weight which is sustained by the thrusters. By default lift=0 simulates freefall"""
     # convert input to numpy arrays
     state = np.asarray(state, dtype=float)
     inertia = np.asarray(inertia, dtype=float)
@@ -28,7 +29,7 @@ def state_derivative(t, state, inertia, torque):
     #calculate position derivative (velocity)
     r_dot = v
     # calculate velocity derivative assuming only gravity acts on the vehicle in the z direction
-    v_dot = GRAVITY
+    v_dot = GRAVITY * (1 - lift)
     # calculate quaternion derivative
     q_dot = quaternion_derivative(q, omega)
     # calculate angular acceleration
