@@ -84,7 +84,62 @@ def simulate_controlled(state0, inertia, thrust, kp, kd, deadband, lift_flight=0
     thrusters.insert(0, thrusters[0])
     lifts.insert(0, lifts[0])
     return np.array(times), np.array(states).T, np.array(thrusters).T, np.array(lifts)
-        
+
+def add_ground_roll(times, states, thrusters, lifts, t_before=1.5, t_after=1.5, dt=0.02):
+    """Adds kinematic ground segments: the car driving forward before take-off and rolling on after touchdown exclusively on positive x direction.
+       No dynamics on the ground: constant speed, level attitude, thrusters off. Same output format as simulate_controlled."""
+    vx = states[3, 0]                        # speed when it leaves the ground
+    # --- before take-off: times from -t_before to 0 (0 excluded, the flight already has it)
+    t_pre = np.arange(-t_before, 0.0, dt)
+    pre = np.zeros((13, len(t_pre)))
+    pre[0] = vx * t_pre                      # x goes from negative values up to 0
+    pre[3] = vx                              # moving forward
+    pre[6] = 1.0                             # level: quaternion (1, 0, 0, 0)
+    # --- after touchdown: keep rolling at the landing horizontal speed
+    t_end, x_end, vx_end = times[-1], states[0, -1], states[3, -1]
+    t_post = t_end + np.arange(dt, t_after + dt, dt)
+    post = np.zeros((13, len(t_post)))
+    post[0] = x_end + vx_end * (t_post - t_end)
+    post[1] = states[1, -1]                  # keep the small lateral offset, if any
+    post[3] = vx_end
+    post[6] = np.sign(states[6, -1])         # level, same sign as the last flight quaternion (-1 after the roll)
+    # --- join the three segments
+    times_all = np.concatenate([t_pre, times, t_post])
+    states_all = np.concatenate([pre, states, post], axis=1)
+    thrusters_all = np.concatenate([np.zeros((12, len(t_pre)), bool), thrusters,
+                                    np.zeros((12, len(t_post)), bool)], axis=1)
+    lifts_all = np.concatenate([np.zeros(len(t_pre)), lifts, np.zeros(len(t_post))])
+    return times_all, states_all, thrusters_all, lifts_all
+    
+
+
+def add_ground_roll(times, states, thrusters, lifts, t_before=1.5, t_after=1.5, dt=0.02):
+    """Adds kinematic ground segments: the car driving in before take-off and rolling on after touchdown.
+       No dynamics on the ground: constant speed, level attitude, thrusters off. Same output format as simulate_controlled."""
+    vx = states[3, 0]                        # speed when it leaves the ground
+    # --- before take-off: times from -t_before to 0 (0 excluded, the flight already has it)
+    t_pre = np.arange(-t_before, 0.0, dt)
+    pre = np.zeros((13, len(t_pre)))
+    pre[0] = vx * t_pre                      # x goes from negative values up to 0
+    pre[3] = vx                              # moving forward
+    pre[6] = 1.0                             # level: quaternion (1, 0, 0, 0)
+    # --- after touchdown: keep rolling at the landing horizontal speed
+    t_end, x_end, vx_end = times[-1], states[0, -1], states[3, -1]
+    t_post = t_end + np.arange(dt, t_after + dt, dt)
+    post = np.zeros((13, len(t_post)))
+    post[0] = x_end + vx_end * (t_post - t_end)
+    post[1] = states[1, -1]                  # keep the small lateral offset, if any
+    post[3] = vx_end
+    post[6] = np.sign(states[6, -1])         # level, same sign as the last flight quaternion (-1 after the roll)
+    # --- join the three segments
+    times_all = np.concatenate([t_pre, times, t_post])
+    states_all = np.concatenate([pre, states, post], axis=1)
+    thrusters_all = np.concatenate([np.zeros((12, len(t_pre)), bool), thrusters,
+                                    np.zeros((12, len(t_post)), bool)], axis=1)
+    lifts_all = np.concatenate([np.zeros(len(t_pre)), lifts, np.zeros(len(t_post))])
+    return times_all, states_all, thrusters_all, lifts_all
+
+
 if __name__ == "__main__":
     np.set_printoptions(precision=3, suppress=True, linewidth=120)
     # Box approximation of the Roadster: m = 2000 kg, L = 4.2 m, B = 2.0 m, H = 1.2 m
@@ -105,3 +160,7 @@ if __name__ == "__main__":
     print("Final omega:      ", states[10:13, -1], "rad/s   expected ~0")
     print("Touchdown vz:     ", states[5, -1], "m/s   expected ~-0.3")
     print("Max lift:         ", lifts.max(), "   expected <= 1.9")
+    # add the ground segments before take-off and after touchdown
+    t_all, s_all, th_all, lf_all = add_ground_roll(times, states, thrusters, lifts)
+    print("Full run from", t_all[0], "to", t_all[-1], "s,", len(t_all), "samples   expected -1.5 to ~7.6 s")
+    print("x from", s_all[0, 0], "to", s_all[0, -1], "m   expected -10.5 to ~53.5")
