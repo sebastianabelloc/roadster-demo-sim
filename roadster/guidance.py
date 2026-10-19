@@ -1,7 +1,7 @@
 import numpy as np
 
 
-def roll_reference(t, t_start=0.45, duration=0.9):
+def roll_reference(t, t_start=0.54, duration=2):
     """Returns the reference roll angle (rad) and roll rate (rad/s) for the barrel roll.
        Smooth profile from 0 to -2*pi (driver side down), with zero rate at start and end."""
     if t < t_start:

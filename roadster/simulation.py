@@ -2,7 +2,7 @@ import numpy as np
 from scipy.integrate import solve_ivp
 from roadster.dynamics import state_derivative 
 
-def touchdown(t, state, inertia, torque):
+def touchdown(t, state, *args):
     """Determines when the Roadster has landed to stop the simulation. The Roadster is considered to have landed when its z position reaches altitude 0 when descending."""
     # convert input to numpy array
     state = np.asarray(state, dtype=float)
