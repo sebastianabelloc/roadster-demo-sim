@@ -1,0 +1,67 @@
+import numpy as np
+import pytest
+from roadster.simulation import simulate_roadster, simulate_controlled, add_ground_roll
+
+M, L, B, H = 2000.0, 4.2, 2.0, 1.2
+INERTIA = np.diag([M / 12 * (B**2 + H**2),
+                   M / 12 * (L**2 + H**2),
+                   M / 12 * (L**2 + B**2)])
+DEMO_STATE0 = [0, 0, 0,   7.0, 0, 11.98,   1, 0, 0, 0,   0.1, 0.25, 0.05]
+DEMO = dict(thrust=5000, kp=5e4, kd=3e3, deadband=400, lift_flight=0.2)
+
+
+@pytest.fixture(scope="module")
+def demo_run():
+    # the full demo is slow-ish (~150 control cycles), so run it once for all tests
+    return simulate_controlled(DEMO_STATE0, INERTIA, **DEMO)
+
+
+def test_no_control_matches_open_loop():
+    # kp = kd = 0 and no braking: the loop must reproduce the plain free-flight simulation
+    state0 = [0, 0, 0,   8, 0, 12.5,   1, 0, 0, 0,   0.3, 0.8, 0.1]
+    times, states, _, _ = simulate_controlled(state0, INERTIA, thrust=5000, kp=0, kd=0,
+                                              deadband=400, lift_flight=0.0, t_brake=100)
+    sol = simulate_roadster(state0, INERTIA, [0, 0, 0])
+    np.testing.assert_allclose(times[-1], sol.t[-1], rtol=1e-6)
+    np.testing.assert_allclose(states[:, -1], sol.y[:, -1], atol=1e-4)
+
+
+def test_outputs_have_matching_lengths(demo_run):
+    times, states, thrusters, lifts = demo_run
+    n = len(times)
+    assert states.shape == (13, n)
+    assert thrusters.shape == (12, n)
+    assert lifts.shape == (n,)
+    assert np.all(np.diff(times) > 0)          # no repeated instants
+
+
+def test_demo_completes_the_roll_and_lands_level(demo_run):
+    _, states, _, _ = demo_run
+    q_final = states[6:10, -1]
+    tilt_deg = np.degrees(2 * np.arccos(min(1.0, abs(q_final[0]))))
+    assert q_final[0] < 0                      # full turn: quaternion ends near -1
+    assert tilt_deg < 2.0
+
+
+def test_demo_soft_landing_within_thrust_limit(demo_run):
+    _, states, _, lifts = demo_run
+    np.testing.assert_allclose(states[5, -1], -0.3, atol=0.05)   # touchdown vertical speed
+    assert lifts.max() <= 1.9 + 1e-9
+    assert lifts.min() >= 0.0
+
+
+def test_demo_quaternion_stays_unit(demo_run):
+    _, states, _, _ = demo_run
+    np.testing.assert_allclose(np.linalg.norm(states[6:10], axis=0), 1.0, atol=1e-9)
+
+
+def test_ground_roll_segments(demo_run):
+    times, states, thrusters, lifts = demo_run
+    t_all, s_all, th_all, lf_all = add_ground_roll(times, states, thrusters, lifts, t_before=1.5, t_after=1.5)
+    assert np.all(np.diff(t_all) > 0)                        # time keeps increasing, no duplicates
+    np.testing.assert_allclose(t_all[0], -1.5)
+    np.testing.assert_allclose(s_all[0, 0], -1.5 * 7.0)      # 1.5 s before take-off, 10.5 m behind the ramp
+    assert np.all(s_all[2, t_all < 0] == 0)                  # on the ground before take-off
+    assert np.all(s_all[2, t_all > times[-1]] == 0)          # and after touchdown
+    assert not th_all[:, t_all < 0].any()                    # thrusters off on the ground
+    assert s_all.shape[1] == th_all.shape[1] == len(lf_all) == len(t_all)
