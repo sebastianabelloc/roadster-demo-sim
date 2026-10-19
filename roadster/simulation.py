@@ -1,8 +1,8 @@
 import numpy as np
 from scipy.integrate import solve_ivp
 from roadster.dynamics import state_derivative 
-from roadster.guidance import roll_reference, roll_quaternion
-from roadster.control import pd_torque, select_thrusters
+from roadster.guidance import roll_reference, roll_quaternion, vertical_reference
+from roadster.control import pd_torque, select_thrusters, lift_command
 from roadster.thrusters import thruster_torque
 from roadster.quaternions import quaternion_normalize
 
@@ -31,7 +31,8 @@ def simulate_roadster(state0, inertia, torque, t_max=10, max_step=0.01, rtol=1e-
     sol = solve_ivp(state_derivative, t_span, state0, args=(inertia, torque), events=touchdown, max_step=max_step, rtol=rtol, atol=atol)
     return sol
 
-def simulate_controlled(state0, inertia, thrust, kp, kd, deadband, lift=0.0, dt=0.02, t_max=10):
+def simulate_controlled(state0, inertia, thrust, kp, kd, deadband, lift_flight=0.0,
+                        kv=8.0, t_brake=2.48, z_hover=0.5, a_brake=0.6 * 9.81, dt=0.02, t_max=10):
     """Simulates flight controller. Takes the initial state and calculates necessary inputs to reach the needed state.
        Then calculates the real position and repeats the same process every 20 milliseconds. Returns times, states and
        thrusters matrixes. Automatically stops at touchdown."""
@@ -39,6 +40,8 @@ def simulate_controlled(state0, inertia, thrust, kp, kd, deadband, lift=0.0, dt=
     state = np.asarray(state0, dtype=float)
     t = 0.0
     times, states, thrusters = [t],  [state.copy()], []
+    t_hover_start = None     # set when the car first reaches z_hover
+    lifts = []               # lift used in each sample, for plots and the animation
     # while loop from time to maximum simulation time
     while t < t_max:
         # gets the reference values (Guidance) from reference function
@@ -52,6 +55,16 @@ def simulate_controlled(state0, inertia, thrust, kp, kd, deadband, lift=0.0, dt=
         # determines which thrusters to turn on and calculates resulting torque
         on = select_thrusters( torque_cmd, deadband)
         torque = thruster_torque(on, thrust)
+        # vertical guidance and control
+        if t < t_brake:
+            lift = lift_flight
+        else:
+            z, vz = state[2], state[5]
+            if t_hover_start is None and z <= z_hover + 0.05:
+                t_hover_start = t
+            vz_ref = vertical_reference(z, t, t_hover_start, z_hover=z_hover, a_brake=a_brake)
+            a_ff = a_brake if t_hover_start is None else 0.0
+            lift = lift_command(vz, vz_ref, a_ff, kv)
         # calculates the new real position based on the torque exerted and interval time
         sol = solve_ivp(state_derivative, (t, t + dt), state, args=(inertia, torque, lift),
                         events=touchdown, max_step=0.005, rtol=1e-10, atol=1e-10)
@@ -59,6 +72,7 @@ def simulate_controlled(state0, inertia, thrust, kp, kd, deadband, lift=0.0, dt=
         times.extend(sol.t[1:])
         states.extend(sol.y[:, 1:].T)
         thrusters.extend([on] * (len(sol.t)-1))
+        lifts.extend([lift] * (len(sol.t) - 1))
         # prepares for next loop
         state = sol.y[:, -1].copy()
         t = sol.t[-1]
@@ -68,7 +82,8 @@ def simulate_controlled(state0, inertia, thrust, kp, kd, deadband, lift=0.0, dt=
         if sol.status == 1:
             break
     thrusters.insert(0, thrusters[0])
-    return np.array(times), np.array(states).T, np.array(thrusters).T
+    lifts.insert(0, lifts[0])
+    return np.array(times), np.array(states).T, np.array(thrusters).T, np.array(lifts)
         
 if __name__ == "__main__":
     np.set_printoptions(precision=3, suppress=True, linewidth=120)
@@ -81,10 +96,12 @@ if __name__ == "__main__":
     sol = simulate_roadster(state0, I, [0, 0, 0], t_max=10, max_step=0.01, rtol=1e-6, atol=1e-9)
     print("Tesla Roadster landed at: ", sol.t[-1], "seconds with final state: ", sol.y[:, -1])
     # closed loop demo
-    state0_ctrl = [0, 0, 0,   7.0, 0, 11.15,   1, 0, 0, 0,   0.1, 0.25, 0.05]
-    times, states, thrusters = simulate_controlled(state0_ctrl, I, thrust=5000, kp=5e4, kd=3e3,
-                                                   deadband=400, lift=0.2)
-    print("Flight time:      ", times[-1], "s   expected ~2.84")
-    print("Final x:          ", states[0, -1], "m   expected ~19.9")
+    state0_ctrl = [0, 0, 0,   7.0, 0, 11.98,   1, 0, 0, 0,   0.1, 0.25, 0.05]
+    times, states, thrusters, lifts = simulate_controlled(state0_ctrl, I, thrust=5000, kp=5e4, kd=3e3,
+                                                   deadband=400, lift_flight=0.2)
+    print("Flight time:      ", times[-1], "s   expected ~6.1")
+    print("Final x:          ", states[0, -1], "m   expected ~43")
     print("Final quaternion: ", states[6:10, -1], "  expected ~(-1, 0, 0, 0)")
     print("Final omega:      ", states[10:13, -1], "rad/s   expected ~0")
+    print("Touchdown vz:     ", states[5, -1], "m/s   expected ~-0.3")
+    print("Max lift:         ", lifts.max(), "   expected <= 1.9")
