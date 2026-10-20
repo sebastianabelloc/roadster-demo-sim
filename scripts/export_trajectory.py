@@ -23,8 +23,8 @@ m, L, B, H = 2000.0, 4.2, 2.0, 1.2
 I = np.diag([m / 12 * (B**2 + H**2), m / 12 * (L**2 + H**2), m / 12 * (L**2 + B**2)])
 
 state0 = [0, 0, 0,   7.0, 0, 11.98,   1, 0, 0, 0,   0.1, 0.25, 0.05]
-t, states, thrusters, lifts = simulate_controlled(state0, I, thrust=5000, kp=5e4, kd=3e3,
-                                                  deadband=400, lift_flight=0.2)
+t, states, thrusters, lifts = simulate_controlled(state0, I, thrust=10000, kp=5e4, kd=3e3,
+                                                  deadband=400, lift_flight=0.0)
 t_touchdown = t[-1]
 t, states, thrusters, lifts = add_ground_roll(t, states, thrusters, lifts)
 

@@ -7,7 +7,7 @@ INERTIA = np.diag([M / 12 * (B**2 + H**2),
                    M / 12 * (L**2 + H**2),
                    M / 12 * (L**2 + B**2)])
 DEMO_STATE0 = [0, 0, 0,   7.0, 0, 11.98,   1, 0, 0, 0,   0.1, 0.25, 0.05]
-DEMO = dict(thrust=5000, kp=5e4, kd=3e3, deadband=400, lift_flight=0.2)
+DEMO = dict(thrust=10000, kp=5e4, kd=3e3, deadband=400, lift_flight=0.0)
 
 
 @pytest.fixture(scope="module")
@@ -19,7 +19,7 @@ def demo_run():
 def test_no_control_matches_open_loop():
     # kp = kd = 0 and no braking: the loop must reproduce the plain free-flight simulation
     state0 = [0, 0, 0,   8, 0, 12.5,   1, 0, 0, 0,   0.3, 0.8, 0.1]
-    times, states, _, _ = simulate_controlled(state0, INERTIA, thrust=5000, kp=0, kd=0,
+    times, states, _, _ = simulate_controlled(state0, INERTIA, thrust=10000, kp=0, kd=0,
                                               deadband=400, lift_flight=0.0, t_brake=100)
     sol = simulate_roadster(state0, INERTIA, [0, 0, 0])
     np.testing.assert_allclose(times[-1], sol.t[-1], rtol=1e-6)
@@ -30,7 +30,7 @@ def test_outputs_have_matching_lengths(demo_run):
     times, states, thrusters, lifts = demo_run
     n = len(times)
     assert states.shape == (13, n)
-    assert thrusters.shape == (12, n)
+    assert thrusters.shape == (6, n)
     assert lifts.shape == (n,)
     assert np.all(np.diff(times) > 0)          # no repeated instants
 
@@ -44,19 +44,26 @@ def test_demo_completes_the_roll_and_lands_level(demo_run):
 
 
 def test_attitude_hold_does_not_chatter(demo_run):
+    # the side (yaw) nozzles are on/off: after the roll only a few short touches
     times, _, thrusters, _ = demo_run
     after_roll = times >= 2.48
     pulses = 0
-    for i in (0, 2, 4, 6, 8, 10):              # one thruster of each pair
-        on = thrusters[i, after_roll].astype(bool)
+    for i in (4, 5):
+        on = thrusters[i, after_roll] > 0
         pulses += int(np.sum(on[1:] & ~on[:-1]) + on[0])
-    assert pulses <= 10                        # was 61 with the roll deadband; a few short touches only
+    assert pulses <= 10
+
+
+def test_throttles_between_0_and_1(demo_run):
+    # every nozzle only pushes and never above its maximum
+    _, _, thrusters, _ = demo_run
+    assert thrusters.min() >= 0.0 and thrusters.max() <= 1.0 + 1e-12
 
 
 def test_demo_soft_landing_within_thrust_limit(demo_run):
     _, states, _, lifts = demo_run
-    np.testing.assert_allclose(states[5, -1], -0.3, atol=0.05)   # touchdown vertical speed
-    assert lifts.max() <= 1.9 + 1e-9
+    np.testing.assert_allclose(states[5, -1], -0.6, atol=0.05)   # touchdown vertical speed
+    assert lifts.max() <= 4 * 10000 / (M * 9.81) + 1e-9      # 4 bottom nozzles at full thrust
     assert lifts.min() >= 0.0
 
 

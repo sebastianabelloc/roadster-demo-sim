@@ -37,3 +37,18 @@ def test_state_derivative_free_flight():
     result = state_derivative(0, state0, INERTIA, [0, 0, 0])
     expected = [12, 0, 10,   0, 0, -9.81,   0, 0, 0, 0,   0, 0, 0]
     np.testing.assert_allclose(result, expected, atol=1e-12)
+
+
+def test_thruster_force_upright_pushes_up():
+    # 19620 N up on 2000 kg cancels gravity
+    state0 = [0, 0, 0,   0, 0, 0,   1, 0, 0, 0,   0, 0, 0]
+    result = state_derivative(0, state0, INERTIA, [0, 0, 0], force=[0, 0, 19620], mass=2000.0)
+    np.testing.assert_allclose(result[3:6], [0, 0, 0], atol=1e-12)
+
+
+def test_thruster_force_upside_down_pushes_down():
+    # rolled 180 deg, a force along the body z axis points to the ground: 2000 N on 2000 kg -> 1 m/s^2 more down
+    state0 = [0, 0, 0,   0, 0, 0,   0, 1, 0, 0,   0, 0, 0]
+    result = state_derivative(0, state0, INERTIA, [0, 0, 0], force=[0, 0, 2000], mass=2000.0)
+    np.testing.assert_allclose(result[3:6], [0, 0, -9.81 - 1.0], atol=1e-12)
+

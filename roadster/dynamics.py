@@ -1,5 +1,5 @@
 import numpy as np
-from roadster.quaternions import quaternion_derivative
+from roadster.quaternions import quaternion_derivative, rotate_vector
 
 GRAVITY = np.array([0.0, 0.0, -9.81])  # m/s^2, inertial frame (z up)
 
@@ -13,10 +13,11 @@ def angular_acceleration(omega, inertia, torque):
     w_dot = np.linalg.inv(inertia) @ (np.subtract(torque, np.cross(omega, inertia @ omega)))
     return w_dot
 
-def state_derivative(t, state, inertia, torque, lift=0.0):
+def state_derivative(t, state, inertia, torque, lift=0.0, force=(0.0, 0.0, 0.0), mass=2000.0):
     """Calculates the derivative of the state vector given time t, state vector, inertia matrix, and torque vector.
        The state vector is [rx, ry, rz, vx, vy, vz, qw, qx, qy, qz, wx, wy, wz] where q is the quaternion and w is the angular velocity.
-       Lift term is introduced to represent the fraction of the weight which is sustained by the thrusters. By default lift=0 simulates freefall"""
+       Lift term is introduced to represent the fraction of the weight which is sustained by the thrusters. By default lift=0 simulates freefall.
+       Force is the net force of the thrusters in the body frame (N); divided by the mass (kg) it adds an acceleration."""
     # convert input to numpy arrays
     state = np.asarray(state, dtype=float)
     inertia = np.asarray(inertia, dtype=float)
@@ -30,6 +31,8 @@ def state_derivative(t, state, inertia, torque, lift=0.0):
     r_dot = v
     # calculate velocity derivative assuming only gravity acts on the vehicle in the z direction
     v_dot = GRAVITY * (1 - lift)
+    # add the push of the thrusters, rotated from the body frame to the inertial frame (F = m a)
+    v_dot = v_dot + rotate_vector(q, np.asarray(force, dtype=float)) / mass
     # calculate quaternion derivative
     q_dot = quaternion_derivative(q, omega)
     # calculate angular acceleration

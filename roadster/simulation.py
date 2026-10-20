@@ -2,8 +2,8 @@ import numpy as np
 from scipy.integrate import solve_ivp
 from roadster.dynamics import state_derivative 
 from roadster.guidance import roll_reference, roll_quaternion, vertical_reference
-from roadster.control import pd_torque, select_thrusters, lift_command
-from roadster.thrusters import thruster_torque
+from roadster.control import pd_torque, allocate_thrusters, lift_command
+from roadster.thrusters import thruster_torque, thruster_force
 from roadster.quaternions import quaternion_normalize
 
 def touchdown(t, state, *args):
@@ -33,10 +33,12 @@ def simulate_roadster(state0, inertia, torque, t_max=10, max_step=0.01, rtol=1e-
 
 def simulate_controlled(state0, inertia, thrust, kp, kd, deadband, lift_flight=0.0,
                         kv=8.0, t_brake=2.48, z_hover=0.5, a_brake=0.6 * 9.81, dt=0.02, t_max=10,
-                        deadband_hold=1500, t_roll_end=2.48):
+                        deadband_hold=1500, t_roll_end=2.48, side_thrust=3000.0, mass=2000.0):
     """Simulates flight controller. Takes the initial state and calculates necessary inputs to reach the needed state.
        Then calculates the real position and repeats the same process every 20 milliseconds. Returns times, states and
-       thrusters matrixes. Automatically stops at touchdown."""
+       thrusters matrixes. Automatically stops at touchdown.
+       thrust is the maximum thrust of each of the 4 bottom nozzles (N) and side_thrust the one of the 2 side nozzles (N).
+       The thrusters matrix holds the throttle (0 to 1) of the 6 nozzles and lifts the bottom thrust as a fraction of the weight."""
     # converts inputs into numpy arrays
     state = np.asarray(state0, dtype=float)
     t = 0.0
@@ -53,11 +55,6 @@ def simulate_controlled(state0, inertia, thrust, kp, kd, deadband, lift_flight=0
         omega = state[10:13]
         # calculates the torque to be comanded based on current position and reference position. Uses the PD controller for this.
         torque_cmd = pd_torque(q, omega, q_ref, [omega_ref, 0, 0], kp, kd)
-        # determines which thrusters to turn on and calculates resulting torque
-        # attitude hold after the roll: wider deadband so tiny errors do not make the thrusters chatter
-        active_deadband = deadband if t < t_roll_end else deadband_hold
-        on = select_thrusters( torque_cmd, active_deadband)
-        torque = thruster_torque(on, thrust)
         # vertical guidance and control
         if t < t_brake:
             lift = lift_flight
@@ -68,14 +65,24 @@ def simulate_controlled(state0, inertia, thrust, kp, kd, deadband, lift_flight=0
             vz_ref = vertical_reference(z, t, t_hover_start, z_hover=z_hover, a_brake=a_brake)
             a_ff = a_brake if t_hover_start is None else 0.0
             lift = lift_command(vz, vz_ref, a_ff, kv)
+        # the bottom nozzles push along the body z axis: divide by its vertical component to get the vertical lift
+        body_z_up = 1 - 2 * (q[1]**2 + q[2]**2)
+        force_z = lift * mass * 9.81 / max(body_z_up, 0.5)
+        # control allocation: throttle of the 4 bottom nozzles and on/off of the 2 side ones
+        # attitude hold after the roll: wider yaw deadband so tiny errors do not make the side nozzles chatter
+        active_deadband = deadband if t < t_roll_end else deadband_hold
+        max_thrust = np.array([thrust] * 4 + [side_thrust] * 2)
+        on = allocate_thrusters(force_z, torque_cmd, active_deadband, thrust)
+        torque = thruster_torque(on, max_thrust)
+        force = thruster_force(on, max_thrust)
         # calculates the new real position based on the torque exerted and interval time
-        sol = solve_ivp(state_derivative, (t, t + dt), state, args=(inertia, torque, lift),
+        sol = solve_ivp(state_derivative, (t, t + dt), state, args=(inertia, torque, 0.0, force, mass),
                         events=touchdown, max_step=0.005, rtol=1e-10, atol=1e-10)
         # extends vectors to save new data
         times.extend(sol.t[1:])
         states.extend(sol.y[:, 1:].T)
         thrusters.extend([on] * (len(sol.t)-1))
-        lifts.extend([lift] * (len(sol.t) - 1))
+        lifts.extend([force[2] / (mass * 9.81)] * (len(sol.t) - 1))
         # prepares for next loop
         state = sol.y[:, -1].copy()
         t = sol.t[-1]
@@ -109,8 +116,8 @@ def add_ground_roll(times, states, thrusters, lifts, t_before=1.5, t_after=1.5, 
     # --- join the three segments
     times_all = np.concatenate([t_pre, times, t_post])
     states_all = np.concatenate([pre, states, post], axis=1)
-    thrusters_all = np.concatenate([np.zeros((12, len(t_pre)), bool), thrusters,
-                                    np.zeros((12, len(t_post)), bool)], axis=1)
+    thrusters_all = np.concatenate([np.zeros((thrusters.shape[0], len(t_pre))), thrusters,
+                                    np.zeros((thrusters.shape[0], len(t_post)))], axis=1)
     lifts_all = np.concatenate([np.zeros(len(t_pre)), lifts, np.zeros(len(t_post))])
     return times_all, states_all, thrusters_all, lifts_all
 
@@ -127,15 +134,15 @@ if __name__ == "__main__":
     print("Tesla Roadster landed at: ", sol.t[-1], "seconds with final state: ", sol.y[:, -1])
     # closed loop demo
     state0_ctrl = [0, 0, 0,   7.0, 0, 11.98,   1, 0, 0, 0,   0.1, 0.25, 0.05]
-    times, states, thrusters, lifts = simulate_controlled(state0_ctrl, I, thrust=5000, kp=5e4, kd=3e3,
-                                                   deadband=400, lift_flight=0.2)
-    print("Flight time:      ", times[-1], "s   expected ~6.1")
-    print("Final x:          ", states[0, -1], "m   expected ~43")
+    times, states, thrusters, lifts = simulate_controlled(state0_ctrl, I, thrust=10000, kp=5e4, kd=3e3,
+                                                   deadband=400, lift_flight=0.0)
+    print("Flight time:      ", times[-1], "s   expected ~4.7")
+    print("Final x:          ", states[0, -1], "m   expected ~33")
     print("Final quaternion: ", states[6:10, -1], "  expected ~(-1, 0, 0, 0)")
     print("Final omega:      ", states[10:13, -1], "rad/s   expected ~0")
-    print("Touchdown vz:     ", states[5, -1], "m/s   expected ~-0.3")
-    print("Max lift:         ", lifts.max(), "   expected <= 1.9")
+    print("Touchdown vz:     ", states[5, -1], "m/s   expected ~-0.6")
+    print("Max lift:         ", lifts.max(), "   expected <= 2.04 (4 bottom nozzles at full thrust)")
     # add the ground segments before take-off and after touchdown
     t_all, s_all, th_all, lf_all = add_ground_roll(times, states, thrusters, lifts)
-    print("Full run from", t_all[0], "to", t_all[-1], "s,", len(t_all), "samples   expected -1.5 to ~7.6 s")
-    print("x from", s_all[0, 0], "to", s_all[0, -1], "m   expected -10.5 to ~53.5")
+    print("Full run from", t_all[0], "to", t_all[-1], "s,", len(t_all), "samples   expected -1.5 to ~6.2 s")
+    print("x from", s_all[0, 0], "to", s_all[0, -1], "m   expected -10.5 to ~44")

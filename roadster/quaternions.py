@@ -51,6 +51,19 @@ def quaternion_conjugate(q):
     # keep scalar part and negate vector part
     return np.concatenate(([q[0]], -q[1:]))
 
+def rotate_vector(q, v):
+    """Rotates a vector v from the body frame to the inertial frame using the unit quaternion q (w, x, y, z).
+       Uses v_inertial = q * (0, v) * q_conjugate. Returns only the vector part."""
+    # convert input to numpy arrays
+    q = np.asarray(q, dtype=float)
+    v = np.asarray(v, dtype=float)
+    # create pure quaternion from the vector
+    v_quat = np.concatenate(([0], v))
+    # rotate using Hamilton product twice: q * v * q_conjugate
+    v_rot = quaternion_multiplication(quaternion_multiplication(q, v_quat), quaternion_conjugate(q))
+    # scalar part is 0, return the vector part
+    return v_rot[1:]
+
 if __name__ == "__main__":
     print("Example 1: Identity = ", quaternion_multiplication([1, 0, 0, 0], [0.5, 0.5, 0.5, 0.5]))
     print("Example 2: Rotation i x j = ", quaternion_multiplication([0, 1, 0, 0], [0, 0, 1, 0]))

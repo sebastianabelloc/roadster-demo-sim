@@ -3,8 +3,8 @@
 Usage (from the repo root):
     blender -b -P blender/render_hop.py -- trajectory.npz renders/frames --res 1920 1080 --engine EEVEE
 
-Everything the car does comes from the trajectory file: position, attitude, which attitude thrusters
-are on and how much lift the lift thrusters give. Blender only draws it.
+Everything the car does comes from the trajectory file: position, attitude and the throttle of each of the
+6 nozzles (roadster/thrusters.py). Blender only draws it.
 """
 import argparse
 import re
@@ -17,16 +17,14 @@ import numpy as np
 from mathutils import Quaternion, Vector
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ASSETS = os.path.join(HERE, "assets")
 REAL = os.path.join(HERE, "assets_real")   # normalized downloaded models (normalize_model.py)
 
 COM_HEIGHT = 0.62      # m, CoM above the ground when the car sits on its wheels (visual offset only)
 LINEUP_START_X = 3.1   # m
 PLATFORM_H = 0.15      # m, low stage the lineup stands on (like the demo)
 GAP = 1.0              # m
-LINEUP = [             # (real model, provisional silhouette, width across the runway in m)
-    ("cybercab", "coupe", 1.97), ("cybertruck", "pickup", 1.97), ("semi", "truck", 2.59),
-    ("modelx", "suv", 2.26), ("models", "sedan", 2.17),
+LINEUP = [             # (model in assets_real/, width across the runway in m)
+    ("cybercab", 1.97), ("cybertruck", 1.97), ("semi", 2.59), ("modelx", 2.26), ("models", 2.17),
 ]
 # colours of the demo lineup; each model's own material names -> role (anything unmatched = dark trim)
 LINEUP_STYLE = {
@@ -43,16 +41,9 @@ LINEUP_STYLE = {
                "map": {r"^bod$": "paint", r"^(Rims|chr)$": "rims", r"^(glass|glack)$": "glass",
                        r"^emit$": "light", r"^red$": "tail"}},
 }
-HALF_L, HALF_W = 2.1, 1.0
-# attitude thrusters, body frame (same table as roadster/thrusters.py), exhaust = -force direction
-THR_POS = np.array([[0, HALF_W, 0], [0, -HALF_W, 0], [0, HALF_W, 0], [0, -HALF_W, 0],
-                    [HALF_L, 0, 0], [-HALF_L, 0, 0], [HALF_L, 0, 0], [-HALF_L, 0, 0],
-                    [HALF_L, 0, 0], [-HALF_L, 0, 0], [HALF_L, 0, 0], [-HALF_L, 0, 0]], float)
-THR_DIR = np.array([[0, 0, 1], [0, 0, -1], [0, 0, -1], [0, 0, 1],
-                    [0, 0, -1], [0, 0, 1], [0, 0, 1], [0, 0, -1],
-                    [0, 1, 0], [0, -1, 0], [0, -1, 0], [0, 1, 0]], float)
-LIFT_NOZZLES = np.array([[1.35, 0.75, -0.38], [1.35, -0.75, -0.38],
-                         [-1.35, 0.75, -0.38], [-1.35, -0.75, -0.38]])
+# thrusters: the same table the simulation uses (roadster/thrusters.py), exhaust = -force direction
+sys.path.insert(0, os.path.join(HERE, ".."))
+from roadster.thrusters import THRUSTER_POSITIONS as THR_POS, THRUSTER_DIRECTIONS as THR_DIR  # noqa: E402
 
 
 # ----------------------------------------------------------------------------
@@ -122,18 +113,6 @@ def hex_rgb(h):
     return tuple(c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in srgb)  # to linear
 
 
-def import_ply(path, mat, parent=None, smooth=True, location=(0, 0, 0)):
-    bpy.ops.wm.ply_import(filepath=path)
-    obj = bpy.context.selected_objects[0]
-    obj.data.materials.append(mat)
-    if smooth:
-        obj.data.shade_smooth()
-    obj.location = location
-    if parent is not None:
-        obj.parent = parent
-    return obj
-
-
 def append_asset(name):
     """Bring in every object of assets_real/<name>.blend; returns its ROOT empty (or None if missing)."""
     path = os.path.join(REAL, f"{name}.blend")
@@ -198,95 +177,6 @@ def style_vehicle(root, style, shared):
                     break
             role = role or style.get("default", "trim")
             o.data.materials[i] = roles[role]
-
-
-def gas_material(name, strength):
-    """Volumetric gas: emissive, wispy (noise), dense at the nozzle and fading towards the tip and the edges.
-    Generated coords on the cone: z goes 0 (nozzle) .. 1 (tip), x/y 0..1 across the bounding box."""
-    m = bpy.data.materials.new(name)
-    m.use_nodes = True
-    nt = m.node_tree
-    nt.nodes.clear()
-    N = nt.nodes.new
-    L = nt.links.new
-
-    def math(op, a=None, b=None):
-        n = N("ShaderNodeMath")
-        n.operation = op
-        for i, v in enumerate((a, b)):
-            if v is None:
-                continue
-            if isinstance(v, (int, float)):
-                n.inputs[i].default_value = v
-            else:
-                L(v, n.inputs[i])
-        return n.outputs[0]
-
-    out = N("ShaderNodeOutputMaterial")
-    vol = N("ShaderNodeVolumePrincipled")
-    gen = N("ShaderNodeTexCoord").outputs["Generated"]
-    sep = N("ShaderNodeSeparateXYZ")
-    L(gen, sep.inputs[0])
-    z = sep.outputs["Z"]
-    # axial fade: 1 at the nozzle -> 0 at the tip, squared for a quick decay
-    axial = math("POWER", math("SUBTRACT", 1.0, z), 2.0)
-    # radial fade: distance from the axis relative to the local cone radius (0.25 at nozzle .. 1 at tip)
-    dx = math("SUBTRACT", sep.outputs["X"], 0.5)
-    dy = math("SUBTRACT", sep.outputs["Y"], 0.5)
-    r = math("MULTIPLY", math("SQRT", math("ADD", math("MULTIPLY", dx, dx), math("MULTIPLY", dy, dy))), 2.0)
-    r_rel = math("DIVIDE", r, math("ADD", 0.25, math("MULTIPLY", z, 0.75)))
-    radial = math("POWER", math("MAXIMUM", math("SUBTRACT", 1.0, r_rel), 0.0), 1.5)
-    noise = N("ShaderNodeTexNoise")
-    noise.inputs["Scale"].default_value = 5.0
-    noise.inputs["Detail"].default_value = 8.0
-    noise.inputs["Roughness"].default_value = 0.6
-    L(N("ShaderNodeTexCoord").outputs["Object"], noise.inputs["Vector"])
-    wisp = math("ADD", 0.35, math("MULTIPLY", noise.outputs["Fac"], 0.9))
-    shape = math("MULTIPLY", math("MULTIPLY", axial, radial), wisp)
-    L(math("MULTIPLY", shape, 4.0), vol.inputs["Density"])
-    L(math("MULTIPLY", shape, strength), vol.inputs["Emission Strength"])
-    vol.inputs["Color"].default_value = (0.9, 0.93, 1.0, 1)
-    vol.inputs["Emission Color"].default_value = (0.7, 0.82, 1.0, 1)
-    L(vol.outputs[0], out.inputs["Volume"])
-    return m
-
-
-def jet_material(name, strength):
-    """Glowing, semi-transparent surface for a jet cone: bright at the nozzle, fading to the tip and to the
-    silhouette edges. A surface (not a volume) so EEVEE draws thin jets crisply."""
-    m = bpy.data.materials.new(name)
-    m.use_nodes = True
-    if hasattr(m, "surface_render_method"):
-        m.surface_render_method = "BLENDED"
-    m.use_backface_culling = False
-    nt = m.node_tree
-    nt.nodes.clear()
-    N, L = nt.nodes.new, nt.links.new
-    out = N("ShaderNodeOutputMaterial")
-    gen = N("ShaderNodeTexCoord")
-    sep = N("ShaderNodeSeparateXYZ")
-    L(gen.outputs["Generated"], sep.inputs[0])
-    inv = N("ShaderNodeMath"); inv.operation = "SUBTRACT"; inv.inputs[0].default_value = 1.0
-    L(sep.outputs["Z"], inv.inputs[1])
-    axial = N("ShaderNodeMath"); axial.operation = "POWER"; axial.inputs[1].default_value = 1.6
-    L(inv.outputs[0], axial.inputs[0])
-    lw = N("ShaderNodeLayerWeight"); lw.inputs["Blend"].default_value = 0.35
-    edge = N("ShaderNodeMath"); edge.operation = "SUBTRACT"; edge.inputs[0].default_value = 1.0
-    L(lw.outputs["Facing"], edge.inputs[1])
-    alpha = N("ShaderNodeMath"); alpha.operation = "MULTIPLY"
-    L(axial.outputs[0], alpha.inputs[0]); L(edge.outputs[0], alpha.inputs[1])
-    fac = N("ShaderNodeMath"); fac.operation = "MULTIPLY"; fac.inputs[1].default_value = 0.9
-    fac.use_clamp = True
-    L(alpha.outputs[0], fac.inputs[0])
-    emis = N("ShaderNodeEmission")
-    emis.inputs["Color"].default_value = (0.78, 0.88, 1.0, 1)
-    emis.inputs["Strength"].default_value = strength
-    transp = N("ShaderNodeBsdfTransparent")
-    mix = N("ShaderNodeMixShader")
-    L(fac.outputs[0], mix.inputs["Fac"])
-    L(transp.outputs[0], mix.inputs[1]); L(emis.outputs[0], mix.inputs[2])
-    L(mix.outputs[0], out.inputs["Surface"])
-    return m
 
 
 def smoke_jet_material(name, opacity=0.95, glow=0.7):
@@ -410,15 +300,7 @@ def build_stage(x0, x1, led):
 
 
 def build_backdrop():
-    """Big blue-lit arch behind the stage and low haze on the floor."""
-    arch_mat = material("Arch", hex_rgb("#0b1530"), metallic=0.6, roughness=0.35,
-                        emission=hex_rgb("#2d5bff"), strength=0.6)
-    if False:  # arch removed: read as a giant horseshoe; the blue beams are enough
-      bpy.ops.mesh.primitive_torus_add(major_radius=15, minor_radius=0.6, major_segments=128, minor_segments=16,
-                                     location=(34, -34, -3.0), rotation=(math.pi / 2, 0, math.radians(-25)))
-      arch = bpy.context.active_object
-      arch.name = "Arch"
-      arch.data.materials.append(arch_mat)
+    """Low haze on the floor and a thin volume behind the stage so the blue beams show."""
     # haze: a flat volume on the floor, densest at the bottom, wispy
     m = bpy.data.materials.new("Haze")
     m.use_nodes = True
@@ -465,147 +347,6 @@ def build_backdrop():
     air.name = "Beam air"
     air.scale = (44, 18, 18)
     air.data.materials.append(beam)
-
-
-# ----------------------------------------------------------------------------
-# cold-gas puffs
-# ----------------------------------------------------------------------------
-# A cold-gas jet is almost invisible; what the demo shows is the condensing cloud. Each puff is released at a
-# nozzle while the simulation says that thruster is on, leaves with the car's velocity plus the exhaust velocity,
-# is stopped by the air (exponential drag), grows and fades. This is a visual effect: it reads the simulation
-# (position, attitude, velocity, thrusters, lift) but does not feed anything back into it.
-
-PUFF = {"att": dict(dt=0.025, v_gas=16.0, tau=0.15, life=0.5, r0=0.10, r1=0.40),
-        "lift": dict(dt=0.02, v_gas=12.0, tau=0.25, life=1.4, r0=0.18, r1=1.0)}
-# the four lift nozzles are drawn as two emitters (front and rear) to keep the number of puffs manageable
-PUFFS = False        # loose puffs read as small blobs; the jets alone show clearly which thrusters fire
-LIFT_PUFFS = False   # the lift exhaust cloud hid which attitude thrusters were firing; cones only
-LIFT_EMITTERS = np.array([[1.35, 0.0, -0.38], [-1.35, 0.0, -0.38]])
-
-
-def quat_rotate(q, v):
-    """Rotate v (body frame) to the world frame with q = (w, x, y, z): q (x) (0, v) (x) q*."""
-    w, u = q[0], q[1:4]
-    return v + 2.0 * np.cross(u, np.cross(u, v) + w * v)
-
-
-def puff_material():
-    m = bpy.data.materials.new("Puff")
-    m.use_nodes = True
-    nt = m.node_tree
-    nt.nodes.clear()
-    N, L = nt.nodes.new, nt.links.new
-    out = N("ShaderNodeOutputMaterial")
-    vol = N("ShaderNodeVolumePrincipled")
-    info = N("ShaderNodeObjectInfo")             # per-puff opacity is keyframed in the object's colour alpha
-    gen = N("ShaderNodeTexCoord")
-    dist = N("ShaderNodeVectorMath"); dist.operation = "DISTANCE"
-    dist.inputs[1].default_value = (0.5, 0.5, 0.5)
-    L(gen.outputs["Generated"], dist.inputs[0])
-    edge = N("ShaderNodeMapRange")               # 1 in the centre -> 0 at the surface of the sphere
-    edge.interpolation_type = "SMOOTHERSTEP"
-    edge.inputs["From Min"].default_value = 0.5
-    edge.inputs["From Max"].default_value = 0.1
-    L(dist.outputs["Value"], edge.inputs["Value"])
-    noise = N("ShaderNodeTexNoise")
-    noise.inputs["Scale"].default_value = 1.6
-    noise.inputs["Detail"].default_value = 3.0
-    noise.noise_dimensions = "4D"
-    L(gen.outputs["Object"], noise.inputs["Vector"])
-    L(info.outputs["Random"], noise.inputs["W"])
-    wisp = N("ShaderNodeMapRange")
-    wisp.inputs["From Min"].default_value = 0.2
-    wisp.inputs["From Max"].default_value = 0.8
-    wisp.inputs["To Min"].default_value = 0.35
-    L(noise.outputs["Fac"], wisp.inputs["Value"])
-    a = N("ShaderNodeMath"); a.operation = "MULTIPLY"
-    L(edge.outputs["Result"], a.inputs[0]); L(wisp.outputs["Result"], a.inputs[1])
-    b = N("ShaderNodeMath"); b.operation = "MULTIPLY"
-    L(a.outputs[0], b.inputs[0]); L(info.outputs["Alpha"], b.inputs[1])
-    d = N("ShaderNodeMath"); d.operation = "MULTIPLY"; d.inputs[1].default_value = 2.0
-    L(b.outputs[0], d.inputs[0])
-    e = N("ShaderNodeMath"); e.operation = "MULTIPLY"; e.inputs[1].default_value = 0.25
-    L(b.outputs[0], e.inputs[0])
-    L(d.outputs[0], vol.inputs["Density"])
-    L(e.outputs[0], vol.inputs["Emission Strength"])
-    vol.inputs["Color"].default_value = (0.95, 0.96, 1.0, 1)
-    vol.inputs["Emission Color"].default_value = (0.8, 0.88, 1.0, 1)
-    L(vol.outputs[0], out.inputs["Volume"])
-    return m
-
-
-def set_keys(obj, data_path, index, frames, values, constant=False):
-    """Write many keyframes at once (much faster than keyframe_insert)."""
-    if obj.animation_data is None:
-        obj.animation_data_create()
-    if obj.animation_data.action is None:
-        obj.animation_data.action = bpy.data.actions.new(obj.name + "Action")
-    fc = obj.animation_data.action.fcurve_ensure_for_datablock(obj, data_path, index=index)
-    fc.keyframe_points.add(len(frames))
-    co = np.empty(2 * len(frames)); co[0::2] = frames; co[1::2] = values
-    fc.keyframe_points.foreach_set("co", co)
-    fc.keyframe_points.foreach_set("interpolation", [0 if constant else 1] * len(frames))  # CONSTANT / LINEAR
-    fc.update()
-
-
-def add_puffs(data, t_frames):
-    t_sim, states = data["t"], data["states"]
-    on, lifts = data["thrusters"].astype(bool), data["lifts"]
-    t_end = float(data["t_touchdown"]) + 0.1
-    sc = bpy.context.scene
-    bpy.ops.mesh.primitive_uv_sphere_add(segments=16, ring_count=8, radius=0.5)
-    proto = bpy.context.active_object
-    mesh = proto.data
-    mesh.materials.append(puff_material())
-    bpy.data.objects.remove(proto, do_unlink=True)
-    rng = np.random.default_rng(7)
-    frames = np.arange(1, len(t_frames) + 1, dtype=float)
-
-    def state_at(t):
-        return np.array([np.interp(t, t_sim, row) for row in states])
-
-    def emit(kind, t0, nozzle_body, exhaust_body, strength):
-        P = PUFF[kind]
-        s = state_at(t0)
-        q = s[6:10] / np.linalg.norm(s[6:10])
-        origin = s[0:3] + np.array([0, 0, COM_HEIGHT]) + quat_rotate(q, nozzle_body)
-        d = quat_rotate(q, exhaust_body)
-        jitter = rng.normal(0, 0.12, 3)
-        v0 = 0.9 * s[3:6] + (d + jitter) * P["v_gas"] * strength
-        alive = (t_frames >= t0) & (t_frames <= t0 + P["life"])
-        if not alive.any():
-            return
-        idx = np.flatnonzero(alive)
-        lo, hi = max(idx[0] - 1, 0), min(idx[-1] + 1, len(t_frames) - 1)
-        span = np.arange(lo, hi + 1)
-        tau = np.clip(t_frames[span] - t0, 0, None)
-        u = np.clip(tau / P["life"], 0, 1)
-        pos = origin + np.outer(P["tau"] * (1 - np.exp(-tau / P["tau"])), v0) + np.outer(0.25 * tau, [0, 0, 1])
-        pos[:, 2] = np.maximum(pos[:, 2], 0.2)                 # the floor stops the gas
-        r = (P["r0"] + (P["r1"] - P["r0"]) * np.sqrt(u)) * (0.6 + 0.4 * strength)
-        alpha = np.clip(tau / 0.04, 0, 1) * (1 - u) ** 1.6 * (0.5 + 0.5 * strength)
-        obj = bpy.data.objects.new(f"puff_{kind}", mesh)
-        sc.collection.objects.link(obj)
-        obj.color = (1, 1, 1, 0)
-        f = frames[span]
-        for i in range(3):
-            set_keys(obj, "location", i, f, pos[:, i])
-            set_keys(obj, "scale", i, f, 2 * r)
-        set_keys(obj, "color", 3, f, alpha)
-        vis_f = [1.0, frames[span[0]], frames[span[-1]] + 1]
-        set_keys(obj, "hide_render", 0, vis_f, [1, 0, 1], constant=True)
-        set_keys(obj, "hide_viewport", 0, vis_f, [1, 0, 1], constant=True)
-
-    for t0 in np.arange(0.0, t_end, PUFF["att"]["dt"]):
-        k = int(np.clip(np.searchsorted(t_sim, t0, side="right") - 1, 0, len(t_sim) - 1))
-        for i in np.flatnonzero(on[:, k]):
-            emit("att", t0, THR_POS[i], -THR_DIR[i], 1.0)
-    for t0 in (np.arange(0.0, t_end, PUFF["lift"]["dt"]) if LIFT_PUFFS else []):
-        k = int(np.clip(np.searchsorted(t_sim, t0, side="right") - 1, 0, len(t_sim) - 1))
-        lf = float(lifts[k])
-        if lf > 0.02:
-            for p in LIFT_EMITTERS:
-                emit("lift", t0 + rng.uniform(0, PUFF["lift"]["dt"]), p, np.array([0, 0, -1.0]), min(1.0, lf))
 
 
 def build_scene(args):
@@ -658,30 +399,21 @@ def build_scene(args):
     ground.data.materials.append(gm)
 
     led = material("LED red", (0.3, 0, 0), emission=hex_rgb("#ff1e2d"), strength=25)
-    led_white = material("LED white", (1, 1, 1), emission=(1, 1, 1), strength=30)
 
     # lineup of vehicles the car jumps over
-    paint = material("Lineup paint", hex_rgb("#5c626c"), metallic=0.85, roughness=0.25, coat=0.8)
     glass = material("Glass", (0.01, 0.01, 0.012), metallic=0.2, roughness=0.05, coat=1.0)
-    rubber = material("Rubber", (0.01, 0.01, 0.01), roughness=0.9)
     shared = {"glass": glass, "trim": material("Trim", (0.012, 0.012, 0.013), roughness=0.5),
               "rims": material("Rims lineup", (0.55, 0.57, 0.6), metallic=1.0, roughness=0.28),
               "light": material("Lamp", (1, 1, 1), emission=(1, 1, 1), strength=6),
               "tail": led}
     x = LINEUP_START_X
-    for real, kind, width in LINEUP:
+    for real, width in LINEUP:
         cx = x + width / 2
         root = append_asset(real)
-        if root is not None:
-            # parked broadside to the runway, one uniform paint for the whole lineup
-            root.location = (cx, 0, PLATFORM_H)
-            root.rotation_euler = (0, 0, math.pi / 2)   # nose towards the camera side (+y)
-            style_vehicle(root, LINEUP_STYLE.get(real, {}), shared)
-        else:
-            for part in ("body", "wheels", "glass"):
-                path = os.path.join(ASSETS, f"veh_{kind}_{part}.ply")
-                if os.path.exists(path):
-                    import_ply(path, paint, location=(cx, 0, PLATFORM_H), smooth=(part != "glass"))
+        # parked broadside to the runway, nose towards the camera side (+y), painted like the demo
+        root.location = (cx, 0, PLATFORM_H)
+        root.rotation_euler = (0, 0, math.pi / 2)
+        style_vehicle(root, LINEUP_STYLE.get(real, {}), shared)
         x += width + GAP
     build_stage(LINEUP_START_X - 0.8, x - GAP + 0.8, led)
 
@@ -689,25 +421,13 @@ def build_scene(args):
     car = bpy.data.objects.new("Car", None)
     sc.collection.objects.link(car)
     car.rotation_mode = "QUATERNION"
-    car_paint = material("Car paint", hex_rgb("#b3121f"), metallic=0.6, roughness=0.22, coat=1.0)
-    rims = material("Rims", (0.6, 0.62, 0.65), metallic=1.0, roughness=0.25)
-    hero = append_asset("roadster")
-    if hero is not None:   # downloaded model keeps its own textures; wheels on the ground at rest
-        hero.parent = car
-        hero.location = (0, 0, -COM_HEIGHT)
-    else:
-        for part, mat in (("body", car_paint), ("cabin", glass), ("tires", rubber), ("rims", rims),
-                          ("head", led_white), ("tail", led)):
-            import_ply(os.path.join(ASSETS, f"car_{part}.ply"), mat, parent=car)
+    hero = append_asset("roadster")       # downloaded model keeps its own textures; wheels on the ground at rest
+    hero.parent = car
+    hero.location = (0, 0, -COM_HEIGHT)
 
-    # gas plumes: 12 attitude thrusters + 4 lift nozzles
-    att_gas = smoke_jet_material("Jet attitude")
-    lift_gas = smoke_jet_material("Jet lift", opacity=0.8, glow=0.5)
-    att = [make_plume(f"jet_att_{i}", att_gas, 2.2, 0.45, car, p, -d) for i, (p, d) in enumerate(zip(THR_POS, THR_DIR))]
-    lift = [make_plume(f"jet_lift_{i}", lift_gas, 2.0, 0.40, car, p, (0, 0, -1)) for i, p in enumerate(LIFT_NOZZLES)]
-    # the model assumes lift nozzles on both faces: the ones facing the ground fire (see README)
-    lift += [make_plume(f"jet_lift_top_{i}", lift_gas, 2.0, 0.40, car, p * [1, 1, -1.3], (0, 0, 1))
-             for i, p in enumerate(LIFT_NOZZLES)]
+    # one gas jet per nozzle (4 bottom + 2 side), pointing where the gas goes
+    gas = smoke_jet_material("Cold gas")
+    jets = [make_plume(f"jet_{i}", gas, 2.2, 0.45, car, p, -d) for i, (p, d) in enumerate(zip(THR_POS, THR_DIR))]
 
     # lights: two stadium spots, a cold fill and a rim light behind the lineup
     def add_light(kind, name, loc, energy, color, target, size=None, spot=None):
@@ -746,7 +466,7 @@ def build_scene(args):
     track.target = target
     track.track_axis = "TRACK_NEGATIVE_Z"
     track.up_axis = "UP_Y"
-    return car, att, lift, cam, target
+    return car, jets, cam, target
 
 
 # ----------------------------------------------------------------------------
@@ -781,14 +501,13 @@ def camera_at(t, car_pos):
 # animation
 # ----------------------------------------------------------------------------
 
-def animate(data, car, att, lift, cam, target, fps, slowmo=1.0):
+def animate(data, car, jets, cam, target, fps, slowmo=1.0):
     t_sim, states = data["t"], data["states"]
-    on, lifts = data["thrusters"].astype(bool), data["lifts"]
+    on = data["thrusters"] > 0.10       # throttles (0..1): a jet is drawn when its nozzle is above 10 %
     t_frames = frame_times(t_sim, fps, float(data["t_touchdown"]), slowmo)
     sc = bpy.context.scene
     sc.frame_start, sc.frame_end = 1, len(t_frames)
     q_prev = None
-    rng = np.random.default_rng(3)
     for f, t in enumerate(t_frames, start=1):
         s = np.array([np.interp(t, t_sim, row) for row in states])
         k = int(np.clip(np.searchsorted(t_sim, t, side="right") - 1, 0, len(t_sim) - 1))
@@ -806,13 +525,9 @@ def animate(data, car, att, lift, cam, target, fps, slowmo=1.0):
         car.keyframe_insert("location", frame=f)
         car.keyframe_insert("rotation_quaternion", frame=f)
         # all or nothing: a jet is either drawn at full size or not drawn at all (render and viewport)
-        lf = float(lifts[k])
-        upright = (1 - 2 * (q[1] ** 2 + q[2] ** 2)) >= 0      # body z axis pointing up?
-        n_bottom = len(lift) // 2
-        lift_on = [lf > 0.02 and (upright if j < n_bottom else not upright) for j in range(len(lift))]
-        for obj, active in [(o, bool(fired[i])) for i, o in enumerate(att)] + list(zip(lift, lift_on)):
-            obj.hide_render = not active
-            obj.hide_viewport = not active
+        for obj, active in zip(jets, fired):
+            obj.hide_render = not bool(active)
+            obj.hide_viewport = not bool(active)
             obj.keyframe_insert("hide_render", frame=f)
             obj.keyframe_insert("hide_viewport", frame=f)
         cam_pos, focal = camera_at(t, pos)
@@ -821,7 +536,7 @@ def animate(data, car, att, lift, cam, target, fps, slowmo=1.0):
         cam.keyframe_insert("location", frame=f)
         target.keyframe_insert("location", frame=f)
     # step interpolation for on/off thrusters, linear for the rest
-    for obj in [car, cam, target] + att + lift:
+    for obj in [car, cam, target] + jets:
         if obj.animation_data and obj.animation_data.action:
             for fc in _fcurves(obj.animation_data.action):
                 interp = "CONSTANT" if fc.data_path in ("hide_render", "hide_viewport") else "LINEAR"
@@ -845,10 +560,8 @@ def _fcurves(action):
 def main():
     args = parse_args()
     data = np.load(args.trajectory)
-    car, att, lift, cam, target = build_scene(args)
-    t_frames = animate(data, car, att, lift, cam, target, args.fps, args.slowmo)
-    if PUFFS:
-        add_puffs(data, t_frames)
+    car, jets, cam, target = build_scene(args)
+    t_frames = animate(data, car, jets, cam, target, args.fps, args.slowmo)
     os.makedirs(args.out_dir, exist_ok=True)
     np.save(os.path.join(args.out_dir, "frame_times.npy"), t_frames)
     sc = bpy.context.scene

@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from roadster.quaternions import quaternion_conjugate, quaternion_multiplication, quaternion_normalize, quaternion_derivative
+from roadster.quaternions import quaternion_conjugate, quaternion_multiplication, quaternion_normalize, quaternion_derivative, rotate_vector
 
 def test_quaternion_identity_multiplication():
     q1 = np.array([1, 0, 0, 0])  # Identity quaternion
@@ -44,3 +44,15 @@ def test_conjugate_undoes_rotation():
     q = [0.70710678, -0.70710678, 0, 0]
     result = quaternion_multiplication(q, quaternion_conjugate(q))
     np.testing.assert_allclose(result, [1, 0, 0, 0], atol=1e-8)
+
+def test_rotate_vector_identity():
+    # identity quaternion: the vector does not change
+    result = rotate_vector([1, 0, 0, 0], [1, 2, 3])
+    np.testing.assert_allclose(result, [1, 2, 3])
+
+def test_rotate_vector_roll_90():
+    # roll +90 deg about x takes the body z axis to -y
+    c = np.cos(np.pi / 4)
+    result = rotate_vector([c, c, 0, 0], [0, 0, 1])
+    np.testing.assert_allclose(result, [0, -1, 0], atol=1e-12)
+

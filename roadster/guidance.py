@@ -24,7 +24,7 @@ def roll_quaternion(phi):
     half_phi = phi / 2
     return np.array([np.cos(half_phi), np.sin(half_phi), 0, 0])  # [w, x, y, z]
 
-def vertical_reference(z, t, t_hover_start, z_hover=0.5, a_brake=0.6 * 9.81, t_hover=0.8, v_land=0.3):
+def vertical_reference(z, t, t_hover_start, z_hover=0.5, a_brake=0.6 * 9.81, t_hover=0.3, v_land=0.6):
     """Returns vertical velocity reference (m/s) based on current altitude z (m), time t (s), and hover start time t_hover_start (s) of designed mission."""
     if t_hover_start is None:
         # descent: as fast as we can still stop at z_hover braking with a_brake (v^2 = 2 a d)

@@ -1,5 +1,6 @@
 import numpy as np
-from roadster.control import attitude_error, pd_torque, select_thrusters, lift_command
+from roadster.control import attitude_error, pd_torque, allocate_thrusters, lift_command
+from roadster.thrusters import thruster_torque, thruster_force
 
 G = 9.81
 
@@ -28,9 +29,29 @@ def test_pd_torque_damping_only_acts_on_extra_rate():
     np.testing.assert_allclose(torque, [0, 0, 0])
 
 
-def test_select_thrusters_pairs_and_deadband():
-    on = select_thrusters([500, -800, 50], deadband=100)
-    np.testing.assert_array_equal(np.where(on)[0], [0, 1, 6, 7])
+MAX = np.array([10000] * 4 + [3000] * 2)
+
+
+def test_allocation_gives_the_commanded_force_and_torque():
+    # hover force with roll and pitch torques: the 4 bottom nozzles must reproduce them exactly
+    force_z, torque_cmd = 19620.0, [3000.0, -2000.0, 0.0]
+    throttle = allocate_thrusters(force_z, torque_cmd, deadband=100, bottom_max=10000)
+    np.testing.assert_allclose(thruster_force(throttle, MAX), [0, 0, force_z])
+    np.testing.assert_allclose(thruster_torque(throttle, MAX)[:2], torque_cmd[:2])
+
+
+def test_allocation_nozzles_only_push():
+    # no upward force asked, only roll: the right side stays off and the left side pushes
+    throttle = allocate_thrusters(0.0, [3000.0, 0.0, 0.0], deadband=100, bottom_max=10000)
+    assert np.all(throttle >= 0)
+    np.testing.assert_allclose(throttle[[1, 3]], [0, 0])
+    np.testing.assert_allclose(thruster_torque(throttle, MAX)[0], 3000.0)
+
+
+def test_allocation_yaw_side_nozzles_and_deadband():
+    assert np.all(allocate_thrusters(0.0, [0, 0, 50], 100, 10000)[4:] == 0)       # inside the deadband
+    np.testing.assert_allclose(allocate_thrusters(0.0, [0, 0, 500], 100, 10000)[4:], [1, 0])
+    np.testing.assert_allclose(allocate_thrusters(0.0, [0, 0, -500], 100, 10000)[4:], [0, 1])
 
 
 def test_lift_command_cases():
