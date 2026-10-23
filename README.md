@@ -57,8 +57,6 @@ $$\phi_{ref}(s) = -\pi\,(1 - \cos \pi s), \qquad s = \frac{t - t_0}{T}$$
 
 ## Results
 
-![Trajectory preview](docs/preview.png)
-
 | | |
 |---|---|
 | Apex | 7.0 m |
