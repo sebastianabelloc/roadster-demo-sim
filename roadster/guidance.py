@@ -19,6 +19,21 @@ def roll_reference(t, t_start=0.48, duration=2):
         omega_ref = 0.0
     return phi_ref, omega_ref
 
+def roll_acceleration(t, t_start=0.48, duration=2):
+    """Returns the reference roll acceleration (rad/s^2) of the same smooth profile (derivative of omega_ref).
+       Used as feedforward torque (I * alpha) so the PD only has to correct small errors."""
+    if t_start <= t < t_start + duration:
+        s = (t - t_start) / duration  # progress from 0 to 1
+        return -(np.pi**3 / duration**2) * np.cos(np.pi * s)
+    return 0.0
+
+def lateral_correction(y, vy, k_y=0.06, k_vy=0.20, max_tilt=0.25):
+    """Outer loop for the lateral position, like a drone: a small extra roll angle (rad) so the bottom nozzles push the car
+       back to the runway centre line (y = 0). Positive roll tilts the floor thrust towards -y. Limited to max_tilt."""
+    # proportional on the position and on the lateral speed (damping)
+    tilt = k_y * y + k_vy * vy
+    return float(np.clip(tilt, -max_tilt, max_tilt))
+
 def roll_quaternion(phi):
     """Returns the quaternion corresponding to a roll angle phi (rad)."""
     half_phi = phi / 2

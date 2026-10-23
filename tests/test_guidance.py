@@ -1,5 +1,5 @@
 import numpy as np
-from roadster.guidance import roll_reference, roll_quaternion, vertical_reference
+from roadster.guidance import roll_reference, roll_acceleration, roll_quaternion, vertical_reference, lateral_correction
 
 G = 9.81
 
@@ -44,3 +44,17 @@ def test_vertical_reference_never_nan_below_hover_height():
 def test_vertical_reference_hover_then_land():
     assert vertical_reference(0.5, 4.0, 3.8, t_hover=0.8) == 0.0
     assert vertical_reference(0.5, 4.7, 3.8, t_hover=0.8, v_land=0.3) == -0.3
+
+
+def test_roll_acceleration_is_the_derivative_of_the_rate():
+    for t in (0.7, 1.2, 1.9, 2.3):
+        dt = 1e-6
+        numeric = (roll_reference(t + dt)[1] - roll_reference(t - dt)[1]) / (2 * dt)
+        np.testing.assert_allclose(roll_acceleration(t), numeric, rtol=1e-5)
+
+
+def test_lateral_correction_pushes_back_and_saturates():
+    assert lateral_correction(1.0, 0.0) > 0          # car on the left (+y): tilt to push it to -y
+    assert lateral_correction(-1.0, 0.0) < 0
+    assert lateral_correction(100.0, 0.0) == 0.25    # limited tilt
+

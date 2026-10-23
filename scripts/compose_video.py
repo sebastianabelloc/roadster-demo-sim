@@ -48,7 +48,8 @@ def frame_data(traj, t_frames):
         t_prev = t_frames[f - 1] if f > 0 else tf
         k0 = int(np.clip(np.searchsorted(t, t_prev, side="right") - 1, 0, k))
         rows.append(dict(t=tf, z=s[2], vx=s[3], vz=s[5], q=s[6:10] / np.linalg.norm(s[6:10]),
-                         fired=on[:, k0:k + 1].any(axis=1), lift=float(lifts[k])))
+                         fired=on[:, k0:k + 1].any(axis=1), lift=float(lifts[k]),
+                         throttle=traj["thrusters"][:, k0:k + 1].max(axis=1)))
     # continuous roll angle (0 -> -360 instead of jumping at +-180)
     roll = np.degrees(np.unwrap(np.radians([roll_deg(r["q"]) for r in rows])))
     for r, phi in zip(rows, roll):
@@ -159,11 +160,16 @@ class Hud:
         outline = [P(x, y) for x, y in zip(xs, half)] + [P(x, -y) for x, y in zip(xs[::-1], half[::-1])]
         d.line(outline + [outline[0]], fill=self.FAINT, width=round(lw), joint="curve")
 
-        def updown(c, rad, exhaust):
+        def updown(c, rad, exhaust, thr=1.0):
             if exhaust is None:
                 self.circle(d, c, rad, outline=self.FAINT, width=round(lw))
                 return
-            self.circle(glow, c, rad * 1.9, fill=(255, 255, 255, 110))
+            self.circle(glow, c, rad * 1.9, fill=(255, 255, 255, int(50 + 80 * thr)))
+            # throttle ring: the arc closes as the nozzle approaches 100 %
+            R = rad * 1.6
+            box = [c[0] - R, c[1] - R, c[0] + R, c[1] + R]
+            d.arc(box, -90, 270, fill=self.FAINT, width=round(lw))
+            d.arc(box, -90, -90 + 360 * float(np.clip(thr, 0, 1)), fill=self.WHITE, width=round(lw * 1.4))
             self.circle(d, c, rad, outline=self.WHITE, width=round(lw * 1.2))
             if exhaust[2] > 0:                          # out of the screen: dot
                 self.circle(d, c, rad * 0.34, fill=self.WHITE)
@@ -198,7 +204,7 @@ class Hud:
                 # keep the symbol inside the hull outline
                 x = np.sign(pos[0]) * min(abs(pos[0]), 1.72)
                 y = np.sign(pos[1]) * min(abs(pos[1]), 0.55)
-                updown(P(x, y), 10.5 * u, ex if fired else None)
+                updown(P(x, y), 10.5 * u, ex if fired else None, float(r["throttle"][i]))
             else:
                 side_jet(float(pos[0]), int(np.sign(ex[1])), fired)
 
@@ -280,8 +286,8 @@ def main():
     w, h = Image.open(files[0]).size
     t_land = float(traj["t_touchdown"])
     t, z = traj["t"], traj["states"][2]
-    t_hover = float(t[np.argmax((t > 2.48) & (z <= 0.55))])
-    events = [(0.0, "LIFTOFF"), (0.48, "ROLL"), (2.48, "BRAKE"), (t_hover, "HOVER"), (t_land, "TOUCHDOWN")]
+    t_hover = float(t[np.argmax((t > 2.35) & (z <= 0.55))])
+    events = [(0.0, "LIFTOFF"), (0.85, "ROLL"), (2.35, "BRAKE"), (t_hover, "HOVER"), (t_land, "TOUCHDOWN")]
     hud = Hud((w, h), events)
 
     cmd = [ffmpeg_exe(), "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{w}x{h}",

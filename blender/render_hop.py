@@ -20,7 +20,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REAL = os.path.join(HERE, "assets_real")   # normalized downloaded models (normalize_model.py)
 
 COM_HEIGHT = 0.62      # m, CoM above the ground when the car sits on its wheels (visual offset only)
-LINEUP_START_X = 3.1   # m
+LINEUP_START_X = 5.5   # m
 PLATFORM_H = 0.15      # m, low stage the lineup stands on (like the demo)
 GAP = 1.0              # m
 LINEUP = [             # (model in assets_real/, width across the runway in m)
@@ -41,6 +41,8 @@ LINEUP_STYLE = {
                "map": {r"^bod$": "paint", r"^(Rims|chr)$": "rims", r"^(glass|glack)$": "glass",
                        r"^emit$": "light", r"^red$": "tail"}},
 }
+# Roadster wheels (x, radius, outer face y) measured on the model; the baked ones are covered by real wheels
+ROADSTER_WHEELS = [(1.26, 0.31, 0.915), (-1.60, 0.345, 0.95)]
 # thrusters: the same table the simulation uses (roadster/thrusters.py), exhaust = -force direction
 sys.path.insert(0, os.path.join(HERE, ".."))
 from roadster.thrusters import THRUSTER_POSITIONS as THR_POS, THRUSTER_DIRECTIONS as THR_DIR  # noqa: E402
@@ -179,7 +181,7 @@ def style_vehicle(root, style, shared):
             o.data.materials[i] = roles[role]
 
 
-def smoke_jet_material(name, opacity=0.95, glow=0.7):
+def smoke_jet_material(name, opacity=0.8, glow=0.35):
     """White cold-gas jet with a smoky, turbulent look. Surface + transparency (not a volume) so every jet
     is crisp and the same size in EEVEE and Cycles. Turbulence = 4D noise whose 4th coordinate follows the frame."""
     m = bpy.data.materials.new(name)
@@ -209,7 +211,7 @@ def smoke_jet_material(name, opacity=0.95, glow=0.7):
     # along the jet: solid for most of its length, fading over the last 40 %
     axial = N("ShaderNodeMapRange")
     axial.interpolation_type = "SMOOTHERSTEP"
-    axial.inputs["From Min"].default_value = 0.6
+    axial.inputs["From Min"].default_value = 0.3
     axial.inputs["From Max"].default_value = 1.0
     axial.inputs["To Min"].default_value = 1.0
     axial.inputs["To Max"].default_value = 0.0
@@ -250,7 +252,7 @@ def smoke_jet_material(name, opacity=0.95, glow=0.7):
 
 def make_plume(name, mat, length, radius, parent, position, direction):
     """Cone with its base at the nozzle, pointing along `direction` (body frame), parented to the car."""
-    bpy.ops.mesh.primitive_cone_add(vertices=48, radius1=radius * 0.25, radius2=radius, depth=length, end_fill_type="NOTHING",
+    bpy.ops.mesh.primitive_cone_add(vertices=48, radius1=radius * 0.15, radius2=radius, depth=length, end_fill_type="NOTHING",
                                     location=(0, 0, 0))
     cone = bpy.context.active_object
     cone.name = name
@@ -264,6 +266,53 @@ def make_plume(name, mat, length, radius, parent, position, direction):
     cone.rotation_quaternion = Vector((0, 0, 1)).rotation_difference(d)
     cone.location = Vector(position) + d * 0.05
     return cone
+
+
+def add_wheels(parent, tyre, rim, spoke):
+    """Tyre + dark aero rim + 5 spokes on each wheel of the Roadster. Returns the wheel empties and radii."""
+    wheels = []
+    for x, r, y_out in ROADSTER_WHEELS:
+        for side in (1, -1):
+            hub = bpy.data.objects.new("Wheel", None)
+            bpy.context.scene.collection.objects.link(hub)
+            hub.parent = parent
+            hub.location = (x, side * (y_out - 0.13), r)
+            hub.rotation_mode = "XYZ"
+            parts = []
+            bpy.ops.mesh.primitive_cylinder_add(vertices=64, radius=r + 0.012, depth=0.26)
+            parts.append((bpy.context.active_object, tyre, 0.0))
+            bpy.ops.mesh.primitive_cylinder_add(vertices=64, radius=0.74 * r, depth=0.012)
+            parts.append((bpy.context.active_object, rim, side * 0.133))
+            for k in range(5):
+                bpy.ops.mesh.primitive_cube_add(size=1)
+                sp = bpy.context.active_object
+                sp.scale = (0.68 * r, 0.10 * r, 0.01)
+                bpy.ops.object.transform_apply(scale=True)
+                for v in sp.data.vertices:          # from the hub outwards, then turned into place
+                    v.co.x += 0.34 * r
+                sp.rotation_euler = (0, 0, 2 * math.pi * k / 5)
+                bpy.ops.object.transform_apply(rotation=True)
+                parts.append((sp, spoke, side * 0.141))
+            for obj, mat, dy in parts:
+                obj.data.materials.append(mat)
+                for poly in obj.data.polygons:
+                    poly.use_smooth = True
+                obj.parent = hub
+                obj.rotation_euler = (math.pi / 2, 0, 0)     # cylinder axis (z) -> axle (y)
+                obj.location = (0, dy, 0)
+            wheels.append((hub, r))
+    return wheels
+
+
+def gloss_up(root):
+    """The Roadster keeps its own colours (baked texture); only the finish changes: clear-coated paint."""
+    for o in root.children:
+        for m in o.data.materials:
+            if m and m.node_tree and "Principled BSDF" in m.node_tree.nodes:
+                b = m.node_tree.nodes["Principled BSDF"]
+                b.inputs["Roughness"].default_value = 0.22
+                b.inputs["Coat Weight"].default_value = 1.0
+                b.inputs["Coat Roughness"].default_value = 0.04
 
 
 # ----------------------------------------------------------------------------
@@ -342,10 +391,10 @@ def build_backdrop():
     bv = bn.nodes.new("ShaderNodeVolumePrincipled")
     bv.inputs["Density"].default_value = 0.008
     bn.links.new(bv.outputs[0], bn.nodes.new("ShaderNodeOutputMaterial").inputs["Volume"])
-    bpy.ops.mesh.primitive_cube_add(size=1, location=(22, -16, 9))
+    bpy.ops.mesh.primitive_cube_add(size=1, location=(20, -14, 15))   # wider than the camera ever sees: no edges
     air = bpy.context.active_object
     air.name = "Beam air"
-    air.scale = (44, 18, 18)
+    air.scale = (160, 24, 30)
     air.data.materials.append(beam)
 
 
@@ -358,6 +407,8 @@ def build_scene(args):
     sc.render.image_settings.file_format = "PNG"
     sc.view_settings.view_transform = "AgX"
     sc.view_settings.look = "AgX - Medium High Contrast"
+    sc.render.use_motion_blur = True             # real cameras smear fast motion (wheels, jets)
+    sc.render.motion_blur_shutter = 0.5
     if args.engine == "CYCLES":
         sc.render.engine = "CYCLES"
         sc.cycles.samples = args.samples
@@ -387,13 +438,13 @@ def build_scene(args):
     # ground: dark asphalt, slightly wet (roughness varies)
     bpy.ops.mesh.primitive_plane_add(size=400, location=(15, 0, 0))
     ground = bpy.context.active_object
-    gm = material("Asphalt", hex_rgb("#0d0e11"), roughness=0.35)
+    gm = material("Asphalt", hex_rgb("#0b0c0e"), roughness=0.6)
     nt = gm.node_tree
     noise = nt.nodes.new("ShaderNodeTexNoise")
     noise.inputs["Scale"].default_value = 0.6
     ramp = nt.nodes.new("ShaderNodeMapRange")
-    ramp.inputs["To Min"].default_value = 0.12
-    ramp.inputs["To Max"].default_value = 0.55
+    ramp.inputs["To Min"].default_value = 0.45
+    ramp.inputs["To Max"].default_value = 0.8
     nt.links.new(noise.outputs["Fac"], ramp.inputs["Value"])
     nt.links.new(ramp.outputs["Result"], nt.nodes["Principled BSDF"].inputs["Roughness"])
     ground.data.materials.append(gm)
@@ -424,10 +475,20 @@ def build_scene(args):
     hero = append_asset("roadster")       # downloaded model keeps its own textures; wheels on the ground at rest
     hero.parent = car
     hero.location = (0, 0, -COM_HEIGHT)
+    gloss_up(hero)
+    wheels = add_wheels(hero, material("Tyre", (0.012, 0.012, 0.013), roughness=0.75),
+                        material("Rim", (0.03, 0.032, 0.036), metallic=1.0, roughness=0.32),
+                        material("Spoke", (0.16, 0.17, 0.18), metallic=1.0, roughness=0.25))
 
     # one gas jet per nozzle (4 bottom + 2 side), pointing where the gas goes
     gas = smoke_jet_material("Cold gas")
-    jets = [make_plume(f"jet_{i}", gas, 2.2, 0.45, car, p, -d) for i, (p, d) in enumerate(zip(THR_POS, THR_DIR))]
+    jets = [make_plume(f"jet_{i}", gas, 3.2, 0.75, car, p, -d) for i, (p, d) in enumerate(zip(THR_POS, THR_DIR))]
+    # gas hitting the floor near the ground (take-off and landing): a low cloud that spreads under the car
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=48, ring_count=24, radius=1.0)
+    splash = bpy.context.active_object
+    splash.name = "Ground splash"
+    splash.scale = (3.4, 2.8, 1.1)
+    splash.data.materials.append(smoke_jet_material("Ground gas", opacity=0.85, glow=0.45))
 
     # lights: two stadium spots, a cold fill and a rim light behind the lineup
     def add_light(kind, name, loc, energy, color, target, size=None, spot=None):
@@ -438,15 +499,16 @@ def build_scene(args):
             data.size = size
         if spot is not None:
             data.spot_size = math.radians(spot)
-            data.spot_blend = 0.6
+            data.spot_blend = 1.0
         obj = bpy.data.objects.new(name, data)
         sc.collection.objects.link(obj)
         obj.location = loc
         direction = Vector(target) - Vector(loc)
         obj.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
         return obj
-    add_light("SPOT", "Stadium A", (2, 16, 24), 200000, (1.0, 0.95, 0.88), (7, 0, 0), spot=50)
-    add_light("SPOT", "Stadium B", (22, 12, 24), 200000, (1.0, 0.95, 0.88), (24, 0, 0), spot=50)
+    add_light("SPOT", "Stadium A", (2, 16, 24), 110000, (1.0, 0.95, 0.88), (7, 0, 4), spot=60)
+    add_light("SPOT", "Stadium B", (22, 12, 24), 110000, (1.0, 0.95, 0.88), (24, 0, 4), spot=60)
+    add_light("SPOT", "Stadium C", (42, 14, 22), 110000, (1.0, 0.95, 0.88), (42, 0, 0), spot=60)
     add_light("SPOT", "Lineup key", (11, 14, 9), 90000, (1.0, 0.97, 0.92), (11, 0, 1), spot=50)
     add_light("AREA", "Fill", (-15, 35, 20), 12000, (0.6, 0.7, 1.0), (10, 0, 0), size=25)
     add_light("AREA", "Rim", (12, -30, 12), 6000, (0.7, 0.8, 1.0), (12, 0, 3), size=15)
@@ -456,7 +518,7 @@ def build_scene(args):
     build_backdrop()
 
     cam_data = bpy.data.cameras.new("Camera")
-    cam_data.lens = 28
+    cam_data.lens = 40
     cam = bpy.data.objects.new("Camera", cam_data)
     sc.collection.objects.link(cam)
     sc.camera = cam
@@ -466,42 +528,30 @@ def build_scene(args):
     track.target = target
     track.track_axis = "TRACK_NEGATIVE_Z"
     track.up_axis = "UP_Y"
-    return car, jets, cam, target
+    return car, jets, wheels, splash, cam, target
 
 
 # ----------------------------------------------------------------------------
 # camera path (in simulation time)
 # ----------------------------------------------------------------------------
 
-CAM_KEYS = [  # time, offset from the car, how much the camera looks at the car (vs. the lineup)
-    (-1.5, (-11.0, 6.0, 1.3), 0.95),   # chasing the car on the runway
-    (0.0, (-9.0, 12.0, 1.0), 0.85),    # take-off
-    (0.9, (-2.0, 21.0, 0.0), 0.65),    # side view, a bit below: the roll against the sky
-    (2.2, (4.0, 20.0, -3.0), 0.70),
-    (3.4, (7.0, 12.0, -1.0), 0.90),    # front-left, low: braking and hover
-    (6.2, (9.0, 8.0, -0.2), 0.95),     # touchdown
-    (8.0, (14.0, 6.0, 0.2), 0.95),     # driving away
-]
-SCENE_CENTER = np.array([11.0, 0.0, 2.0])
+CAM_Y, CAM_Z = 26.0, 1.7    # m: camera on a tripod beside the runway (+y side), at eye height
+SCENE_CENTER = np.array([16.0, 0.0, 3.0])
 
 
 def camera_at(t, car_pos):
-    times = np.array([k[0] for k in CAM_KEYS])
-    i = int(np.clip(np.searchsorted(times, t) - 1, 0, len(CAM_KEYS) - 2))
-    u = np.clip((t - times[i]) / (times[i + 1] - times[i]), 0, 1)
-    u = u * u * (3 - 2 * u)
-    off = (1 - u) * np.array(CAM_KEYS[i][1]) + u * np.array(CAM_KEYS[i + 1][1])
-    blend = (1 - u) * CAM_KEYS[i][2] + u * CAM_KEYS[i + 1][2]
-    pos = car_pos + off
-    pos[2] = max(pos[2], 0.6)
-    return pos, blend * car_pos + (1 - blend) * SCENE_CENTER
+    """Tripod beside the runway: it only slides slowly along x and pans to keep the car in the frame."""
+    cam_x = 0.7 * car_pos[0] + 0.3 * SCENE_CENTER[0] - 2.0
+    focal = 0.8 * car_pos + 0.2 * SCENE_CENTER
+    focal[2] = 1.8 + 0.45 * car_pos[2]      # tilt up only half way: the lineup stays in the frame
+    return np.array([cam_x, CAM_Y, CAM_Z]), focal
 
 
 # ----------------------------------------------------------------------------
 # animation
 # ----------------------------------------------------------------------------
 
-def animate(data, car, jets, cam, target, fps, slowmo=1.0):
+def animate(data, car, jets, wheels, splash, cam, target, fps, slowmo=1.0):
     t_sim, states = data["t"], data["states"]
     on = data["thrusters"] > 0.10       # throttles (0..1): a jet is drawn when its nozzle is above 10 %
     t_frames = frame_times(t_sim, fps, float(data["t_touchdown"]), slowmo)
@@ -515,6 +565,7 @@ def animate(data, car, jets, cam, target, fps, slowmo=1.0):
         t_prev = t_frames[f - 2] if f > 1 else t
         k0 = int(np.clip(np.searchsorted(t_sim, t_prev, side="right") - 1, 0, k))
         fired = on[:, k0:k + 1].any(axis=1)
+        throttle = data["thrusters"][:, k0:k + 1].max(axis=1)    # strongest push of each nozzle in this frame
         pos = s[0:3] + np.array([0, 0, COM_HEIGHT])
         q = s[6:10] / np.linalg.norm(s[6:10])
         if q_prev is not None and np.dot(q, q_prev) < 0:
@@ -524,19 +575,33 @@ def animate(data, car, jets, cam, target, fps, slowmo=1.0):
         car.rotation_quaternion = Quaternion(q)
         car.keyframe_insert("location", frame=f)
         car.keyframe_insert("rotation_quaternion", frame=f)
-        # all or nothing: a jet is either drawn at full size or not drawn at all (render and viewport)
-        for obj, active in zip(jets, fired):
+        for hub, r in wheels:                # rolling without slipping: angle = distance / radius
+            hub.rotation_euler.y = s[0] / r
+            hub.keyframe_insert("rotation_euler", index=1, frame=f)
+        # the bottom nozzles are throttled (0..1): the jet grows with the throttle, from 40 % of its length
+        # (never a tiny jet) to full size; below 10 % it is not drawn. The side nozzles are on/off: full size.
+        for obj, active, thr in zip(jets, fired, throttle):
             obj.hide_render = not bool(active)
             obj.hide_viewport = not bool(active)
+            size = 0.4 + 0.6 * min(max((thr - 0.10) / 0.90, 0.0), 1.0)
+            obj.scale = (0.6 + 0.4 * size, 0.6 + 0.4 * size, size)
             obj.keyframe_insert("hide_render", frame=f)
             obj.keyframe_insert("hide_viewport", frame=f)
+            obj.keyframe_insert("scale", frame=f)
+        # ground cloud: only while a bottom nozzle fires within 2.5 m of the floor
+        near = bool(fired[:4].any()) and s[2] < 2.5
+        splash.location = (s[0], s[1], 0.05)
+        splash.hide_render = splash.hide_viewport = not near
+        splash.keyframe_insert("location", frame=f)
+        splash.keyframe_insert("hide_render", frame=f)
+        splash.keyframe_insert("hide_viewport", frame=f)
         cam_pos, focal = camera_at(t, pos)
         cam.location = cam_pos
         target.location = focal
         cam.keyframe_insert("location", frame=f)
         target.keyframe_insert("location", frame=f)
     # step interpolation for on/off thrusters, linear for the rest
-    for obj in [car, cam, target] + jets:
+    for obj in [car, cam, target, splash] + jets + [hub for hub, _ in wheels]:
         if obj.animation_data and obj.animation_data.action:
             for fc in _fcurves(obj.animation_data.action):
                 interp = "CONSTANT" if fc.data_path in ("hide_render", "hide_viewport") else "LINEAR"
@@ -560,8 +625,8 @@ def _fcurves(action):
 def main():
     args = parse_args()
     data = np.load(args.trajectory)
-    car, jets, cam, target = build_scene(args)
-    t_frames = animate(data, car, jets, cam, target, args.fps, args.slowmo)
+    car, jets, wheels, splash, cam, target = build_scene(args)
+    t_frames = animate(data, car, jets, wheels, splash, cam, target, args.fps, args.slowmo)
     os.makedirs(args.out_dir, exist_ok=True)
     np.save(os.path.join(args.out_dir, "frame_times.npy"), t_frames)
     sc = bpy.context.scene
