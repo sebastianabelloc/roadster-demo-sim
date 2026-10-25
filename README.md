@@ -102,7 +102,7 @@ This is a quick personal project, not a model of the real car. Some things I lef
 
 ## Thrust and gas needed
 
-With a 2000 kg car, the four floor nozzles need close to 10 kN each at take-off (1.9 times the weight in total), and the whole hop needs an impulse of about 103 kN·s. With nitrogen as the cold gas (specific impulse around 70 s) that is about 150 kg of gas for a five-second flight. Both numbers are very high for a road car, so it is possible that the demo car was much lighter than a production Roadster.
+I estimated from the demo footage that the roll takes about 1.5 s. Doing a full roll that fast needs a large difference in thrust between the left and right floor nozzles, on top of the lift. With a 2000 kg car, the four floor nozzles need close to 10 kN each at take-off (1.9 times the weight in total), and the whole hop needs an impulse of about 103 kN·s. With nitrogen as the cold gas (specific impulse around 70 s) that is about 150 kg of gas for a five-second flight. Both numbers are very high for a road car, so it is possible that the demo car was much lighter than a production Roadster.
 
 ## Credits
 
