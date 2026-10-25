@@ -102,7 +102,7 @@ This is a quick personal project, not a model of the real car. Some things I lef
 
 ## Thrust and gas needed
 
-I estimated from the demo footage that the roll takes about 1.5 s. Doing a full roll that fast needs a large difference in thrust between the left and right floor nozzles, on top of the lift. With a 1700 kg car, the four floor nozzles need about 8.3 kN each at take-off (1.9 times the weight in total), and the whole hop needs an impulse of about 88 kN·s. With nitrogen as the cold gas (specific impulse around 70 s) that is about 130 kg of gas for a five-second flight. Both numbers fit within what Tesla has said the Rocket version carries: about 90 kN of total thrust from six nozzles and 600 L of nitrogen at around 690 bar, roughly 250 to 300 kg of gas. The mass of 1700 kg is the target weight given by Tesla, which has not published a final curb weight yet.
+I estimated from the demo footage that the roll takes about 1.5 s. Doing a full roll that fast needs a large difference in thrust between the left and right floor nozzles, on top of the lift. With a 1700 kg car, the four floor nozzles need about 8.3 kN each at take-off (1.9 times the weight in total), and the whole hop needs an impulse of about 88 kN·s. With nitrogen as the cold gas (specific impulse around 70 s) that is about 130 kg of gas for a five-second flight. Tesla has said the Rocket version carries about 90 kN of thrust and 600 L of nitrogen at around 690 bar, roughly 250 to 300 kg of gas, although it is unknown how much of that thrust comes from the rear nozzles used for acceleration. Even so, the numbers seem consistent with the demo. The mass of 1700 kg is the target weight given by Tesla, which has not published a final curb weight yet.
 
 ## Credits
 
