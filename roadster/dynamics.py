@@ -13,7 +13,7 @@ def angular_acceleration(omega, inertia, torque):
     w_dot = np.linalg.inv(inertia) @ (np.subtract(torque, np.cross(omega, inertia @ omega)))
     return w_dot
 
-def state_derivative(t, state, inertia, torque, lift=0.0, force=(0.0, 0.0, 0.0), mass=2000.0):
+def state_derivative(t, state, inertia, torque, lift=0.0, force=(0.0, 0.0, 0.0), mass=1700.0):
     """Calculates the derivative of the state vector given time t, state vector, inertia matrix, and torque vector.
        The state vector is [rx, ry, rz, vx, vy, vz, qw, qx, qy, qz, wx, wy, wz] where q is the quaternion and w is the angular velocity.
        Lift term is introduced to represent the fraction of the weight which is sustained by the thrusters. By default lift=0 simulates freefall.
@@ -42,8 +42,8 @@ def state_derivative(t, state, inertia, torque, lift=0.0, force=(0.0, 0.0, 0.0),
 
 if __name__ == "__main__":
     np.set_printoptions(precision=3, suppress=True, linewidth=120)
-    # Box approximation of the Roadster: m = 2000 kg, L = 4.2 m, B = 2.0 m, H = 1.2 m
-    m, L, B, H = 2000.0, 4.2, 2.0, 1.2
+    # Box approximation of the Roadster: m = 1700 kg, L = 4.2 m, B = 2.0 m, H = 1.2 m
+    m, L, B, H = 1700.0, 4.2, 2.0, 1.2
     I = np.diag([m / 12 * (B**2 + H**2),
                  m / 12 * (L**2 + H**2),
                  m / 12 * (L**2 + B**2)])

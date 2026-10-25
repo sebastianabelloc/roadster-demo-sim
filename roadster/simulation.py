@@ -33,7 +33,7 @@ def simulate_roadster(state0, inertia, torque, t_max=10, max_step=0.01, rtol=1e-
 
 def simulate_controlled(state0, inertia, thrust, kp, kd, deadband, lift_flight=0.0,
                         kv=8.0, t_brake=2.35, z_hover=0.5, a_brake=0.6 * 9.81, dt=0.02, t_max=10,
-                        deadband_hold=1500, t_roll_end=2.35, side_thrust=3000.0, mass=2000.0,
+                        deadband_hold=1500, t_roll_end=2.35, side_thrust=3000.0, mass=1700.0,
                         feedforward=True, lateral=True, k_y=0.06, k_vy=0.20,
                         t_roll_start=0.85, roll_duration=1.5, v_launch=None, lift_launch=1.9):
     """Simulates flight controller. Takes the initial state and calculates necessary inputs to reach the needed state.
@@ -140,8 +140,8 @@ def add_ground_roll(times, states, thrusters, lifts, t_before=1.5, t_after=1.5, 
 
 if __name__ == "__main__":
     np.set_printoptions(precision=3, suppress=True, linewidth=120)
-    # Box approximation of the Roadster: m = 2000 kg, L = 4.2 m, B = 2.0 m, H = 1.2 m
-    m, L, B, H = 2000.0, 4.2, 2.0, 1.2
+    # Box approximation of the Roadster: m = 1700 kg, L = 4.2 m, B = 2.0 m, H = 1.2 m
+    m, L, B, H = 1700.0, 4.2, 2.0, 1.2
     I = np.diag([m / 12 * (B**2 + H**2),
                  m / 12 * (L**2 + H**2),
                  m / 12 * (L**2 + B**2)])

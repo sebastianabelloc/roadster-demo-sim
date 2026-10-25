@@ -19,7 +19,7 @@ Everything you see in the video comes from the simulation. Python runs the close
 
 ### Dynamics
 
-The car is a rigid body of 2000 kg, approximated as a 4.2 x 2.0 x 1.2 m box for the inertia. The state has 13 components: position, velocity, attitude quaternion (w, x, y, z) and angular velocity in the body frame.
+The car is a rigid body of 1700 kg (the target weight given by Tesla), approximated as a 4.2 x 2.0 x 1.2 m box for the inertia. The state has 13 components: position, velocity, attitude quaternion (w, x, y, z) and angular velocity in the body frame.
 
 $$\dot{\mathbf{r}} = \mathbf{v} \qquad \dot{\mathbf{v}} = \mathbf{g} + \frac{1}{m}\, q \otimes \mathbf{F}_b \otimes q^*$$
 
@@ -102,7 +102,7 @@ This is a quick personal project, not a model of the real car. Some things I lef
 
 ## Thrust and gas needed
 
-I estimated from the demo footage that the roll takes about 1.5 s. Doing a full roll that fast needs a large difference in thrust between the left and right floor nozzles, on top of the lift. With a 2000 kg car, the four floor nozzles need close to 10 kN each at take-off (1.9 times the weight in total), and the whole hop needs an impulse of about 103 kN·s. With nitrogen as the cold gas (specific impulse around 70 s) that is about 150 kg of gas for a five-second flight. Both numbers are very high for a road car, so it is possible that the demo car was much lighter than a production Roadster.
+I estimated from the demo footage that the roll takes about 1.5 s. Doing a full roll that fast needs a large difference in thrust between the left and right floor nozzles, on top of the lift. With a 1700 kg car, the four floor nozzles need about 8.3 kN each at take-off (1.9 times the weight in total), and the whole hop needs an impulse of about 88 kN·s. With nitrogen as the cold gas (specific impulse around 70 s) that is about 130 kg of gas for a five-second flight. Both numbers fit within what Tesla has said the Rocket version carries: about 90 kN of total thrust from six nozzles and 600 L of nitrogen at around 690 bar, roughly 250 to 300 kg of gas. The mass of 1700 kg is the target weight given by Tesla, which has not published a final curb weight yet.
 
 ## Credits
 
