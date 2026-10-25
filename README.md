@@ -98,7 +98,11 @@ This is a quick personal project, not a model of the real car. Some things I lef
 - Ideal nozzles: the thrust changes instantly, no valve delay and no pressure drop as the tank empties.
 - No aerodynamics and no ground effect.
 - Perfect navigation: the controller reads the true state, there are no sensors or estimation.
-- Thrust values and nozzle positions are my own estimates from the demo footage, not real data.
+- Nozzle positions are my own estimates from the demo footage. The thrust of each nozzle is calculated by the controller, up to 10 kN for each floor nozzle and 3 kN for each side nozzle.
+
+## Thrust and gas needed
+
+With a 2000 kg car, the four floor nozzles need close to 10 kN each at take-off (1.9 times the weight in total), and the whole hop needs an impulse of about 103 kN·s. With nitrogen as the cold gas (specific impulse around 70 s) that is about 150 kg of gas for a five-second flight. Both numbers are very high for a road car, so it is possible that the demo car was much lighter than a production Roadster.
 
 ## Credits
 
